@@ -67,7 +67,7 @@ build/install/
 ├── share/openxr/1/openxr_wivrn.json      runtime manifest, library_path relative to it
 ├── share/vulkan/icd.d/MoltenVK_icd.json  ICD manifest of the bundled MoltenVK
 ├── share/wivrn/ipc-stamp                 IPC stamp of the server (= both runtime slices)
-├── share/wivrn/build-info                versions: this repo, WiVRn tag, Monado base and tree, patch lists, prefix
+├── share/wivrn/build-info                version= (VERSION, read by VarboR), this repo, WiVRn tag, Monado base and tree, patch lists, prefix
 └── share/doc/wivrn-macos/                licenses
 ```
 
@@ -107,6 +107,7 @@ WiVRn.app/Contents/
   checks that no Mach-O in the bundle links a missing `@rpath` library), bundles the server's and dbus-daemon's
   Homebrew dylibs and MoltenVK, and signs ad hoc (`codesign --deep`). Size: 201 MB after macdeployqt (before the
   server and its libraries are added), 186 MB finished, 80 MB zipped. macdeployqt takes ~15 min.
+- Logs: `~/Library/Logs/WiVRn/{wivrn-server,wivrn-dashboard}.log`, rotated (patch 0016). Known issues: [TODO.md](../TODO.md).
 - Version: `VERSION` is `<WiVRn major>.<WiVRn minor>.<wivrn-macos revision>`, the release tag is `v` + it, and
   the app's self-update compares it with the latest release.
 - Notarization would need a Developer ID and the hardened runtime (`codesign -o runtime`, entitlements for audio

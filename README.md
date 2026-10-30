@@ -47,8 +47,9 @@ folder you can put anywhere (`bin/wivrn-server`).
 4. Quitting WiVRn.app stops the server.
 
 On first use with audio, macOS asks to let WiVRn record system audio (Privacy & Security, Screen & System Audio
-Recording). Without it the headset gets silence. Settings, environment variables and logs are described in
-[docs/wivrn.md](docs/wivrn.md).
+Recording). Without it the headset gets silence. Logs are in `~/Library/Logs/WiVRn/` (`wivrn-server.log`,
+`wivrn-dashboard.log`, the last five of each; also in Console.app). Settings and environment variables are described
+in [docs/wivrn.md](docs/wivrn.md).
 
 ## Limitations
 

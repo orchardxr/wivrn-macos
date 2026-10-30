@@ -1,0 +1,150 @@
+From: wivrn-macos
+Subject: [PATCH] macos-dashboard-logs
+
+---
+ dashboard/dashboard_utils.cpp | 22 ++++++++++++++++++++++
+ dashboard/dashboard_utils.h   |  7 +++++++
+ dashboard/main.cpp            | 30 ++++++++++++++++++++++++++++++
+ dashboard/wivrn_server.cpp    | 12 ++++++++++++
+ 4 files changed, 71 insertions(+)
+
+diff --git a/dashboard/dashboard_utils.cpp b/dashboard/dashboard_utils.cpp
+index 46ac4a0508c3d7b118d1093a3079304bdd39218f..5608da8e1b1328e170d266749a9c198af7e06d9e 100644
+--- a/dashboard/dashboard_utils.cpp
++++ b/dashboard/dashboard_utils.cpp
+@@ -29,3 +29,25 @@ QString find_executable(const QString & name)
+ 		        QStringList({"/run/host/usr/sbin", "/run/host/usr/bin", "/run/host/sbin", "/run/host/bin"}));
+ 	return QStandardPaths::findExecutable(name);
+ }
++
++#ifdef __APPLE__
++#include <QDir>
++#include <QFile>
++
++QString log_dir()
++{
++	QString dir = QDir::homePath() + "/Library/Logs/WiVRn";
++	QDir().mkpath(dir);
++	return dir;
++}
++
++QString rotate_log(const QString & name, int keep)
++{
++	QString base = log_dir() + "/" + name;
++	QFile::remove(base + "." + QString::number(keep) + ".log");
++	for (int i = keep - 1; i >= 1; --i)
++		QFile::rename(base + "." + QString::number(i) + ".log", base + "." + QString::number(i + 1) + ".log");
++	QFile::rename(base + ".log", base + ".1.log");
++	return base + ".log";
++}
++#endif
+diff --git a/dashboard/dashboard_utils.h b/dashboard/dashboard_utils.h
+index b15a929d40e5c09d0054aa6ae31c450919ba1d93..741c40dee880b6fb3d1d016bee7647bd549f1ac6 100644
+--- a/dashboard/dashboard_utils.h
++++ b/dashboard/dashboard_utils.h
+@@ -21,3 +21,10 @@
+ #include <QString>
+ 
+ QString find_executable(const QString & name);
++
++#ifdef __APPLE__
++// ~/Library/Logs/WiVRn
++QString log_dir();
++// Shifts <log_dir>/<name>.log to <name>.1.log ... keeping `keep` old ones, returns the path of <name>.log
++QString rotate_log(const QString & name, int keep = 5);
++#endif
+diff --git a/dashboard/main.cpp b/dashboard/main.cpp
+index e9bece5e69cce0d3f0ec1ca9bea5588be665fbc6..f8609741cdcbb493d010b061951a4cf743a06e31 100644
+--- a/dashboard/main.cpp
++++ b/dashboard/main.cpp
+@@ -19,9 +19,12 @@
+ #include <QDir>
+ #include <QFile>
+ #include <QProcess>
++#include <QDateTime>
+ #include <QStandardPaths>
+ #include <unistd.h>
+ 
++#include "dashboard_utils.h"
++
+ // macOS has no session bus: run a private one in the user temp dir, shared with the servers we start
+ struct stop_process
+ {
+@@ -83,6 +86,32 @@ static std::unique_ptr<QProcess, stop_process> start_session_bus()
+ 	return bus;
+ }
+ 
++// The dashboard's own messages: stderr as before, and ~/Library/Logs/WiVRn/wivrn-dashboard.log
++static QFile * dashboard_log = nullptr;
++static QtMessageHandler default_handler = nullptr;
++
++static void log_message(QtMsgType type, const QMessageLogContext & context, const QString & msg)
++{
++	if (dashboard_log)
++	{
++		dashboard_log->write((QDateTime::currentDateTime().toString(Qt::ISODateWithMs) + " " + qFormatLogMessage(type, context, msg) + "\n").toUtf8());
++		dashboard_log->flush();
++	}
++	if (default_handler)
++		default_handler(type, context, msg);
++}
++
++static void start_dashboard_log()
++{
++	dashboard_log = new QFile(rotate_log("wivrn-dashboard"));
++	if (not dashboard_log->open(QFile::WriteOnly | QFile::Truncate))
++	{
++		delete dashboard_log;
++		dashboard_log = nullptr;
++	}
++	default_handler = qInstallMessageHandler(log_message);
++}
++
+ // MoltenVK for the dashboard and the server: the bundled ICD, else Homebrew's
+ static void set_vulkan_driver()
+ {
+@@ -105,6 +134,7 @@ int main(int argc, char * argv[])
+ 	KIconTheme::initTheme();
+ 	QApplication app(argc, argv);
+ #ifdef __APPLE__
++	start_dashboard_log();
+ 	auto session_bus = start_session_bus();
+ 	set_vulkan_driver();
+ #endif
+diff --git a/dashboard/wivrn_server.cpp b/dashboard/wivrn_server.cpp
+index 2971c9b78edf272a55e59acb273dbab5636a26b3..162bba321c95269b07a0e6445c5fe47cf33b4147 100644
+--- a/dashboard/wivrn_server.cpp
++++ b/dashboard/wivrn_server.cpp
+@@ -17,6 +17,7 @@
+  */
+ 
+ #include "wivrn_server.h"
++#include "dashboard_utils.h"
+ #include "gui_config.h"
+ #include "magic_enum.hpp"
+ #include "utils/flatpak.h"
+@@ -82,6 +83,9 @@ wivrn_server::~wivrn_server()
+ 
+ QString get_server_log_dir()
+ {
++#ifdef __APPLE__
++	return log_dir();
++#endif
+ #if QT_VERSION >= QT_VERSION_CHECK(6, 7, 0)
+ 	QString state_path = QStandardPaths::writableLocation(QStandardPaths::StateLocation);
+ #else
+@@ -105,6 +109,14 @@ QString get_server_log_dir()
+ 
+ std::unique_ptr<QFile> get_server_log_file()
+ {
++#ifdef __APPLE__
++	{
++		auto log_file = std::make_unique<QFile>(rotate_log("wivrn-server"));
++		log_file->open(QFile::WriteOnly | QFile::Truncate);
++		qDebug() << "Saving logs in" << log_file->fileName();
++		return log_file;
++	}
++#endif
+ 	QString state_path = get_server_log_dir();
+ 
+ 	QFileInfoList files = QDir{state_path}.entryInfoList({"server_logs_*.txt"}, QDir::Files, QDir::Name);

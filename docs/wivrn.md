@@ -394,6 +394,19 @@ and `codesign --verify --deep --strict`, then a detached `/bin/sh` waits for the
 when an update exists); "Check for updates" in the drawer reports the result; the main page shows "Update and
 restart" and the release notes link. Needs a writable parent folder (else it points at the release page).
 
+**0015-macos-cloexec** (2026-10-30)
+
+`TCPListener::accept()` set `FD_CLOEXEC` on the listening socket instead of the accepted one (upstream bug), and the
+listener had none: `caffeinate` (sleep inhibitor, spawned when a headset connects) and the server's own `execv` after a
+session inherited the headset's TCP connection. Now both sockets are close-on-exec, and `caffeinate` is spawned with
+`POSIX_SPAWN_CLOEXEC_DEFAULT` and `/dev/null` as stdio (it no longer holds the dashboard's log pipe either).
+
+**0016-macos-dashboard-logs** (2026-10-30)
+
+The dashboard writes the server's output to `~/Library/Logs/WiVRn/wivrn-server.log` and its own messages to
+`wivrn-dashboard.log` there (still also on stderr), each rotated at start to `.1.log` ... `.5.log`. "Open server logs"
+opens that folder; Console.app shows it under Log Reports.
+
 ## Step 7 findings (2026-10-24)
 
 - **Startup stall: fixed** (root cause in docs/encoder.md). It was libmvt's prewarm PTS (`CLOCK_UPTIME_RAW`) against

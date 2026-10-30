@@ -9,7 +9,7 @@
 # share/openxr/1/openxr_wivrn.json        its manifest (relative library_path)
 # share/vulkan/icd.d/MoltenVK_icd.json    ICD manifest of the bundled MoltenVK
 # share/wivrn/ipc-stamp                   IPC stamp of the server, equal to both client slices' (scripts/ipc-stamp.sh)
-# share/wivrn/build-info                  versions: this repo, WiVRn tag, Monado tree, patch lists, configured prefix
+# share/wivrn/build-info                  version= (VERSION), this repo, WiVRn tag, Monado tree, patch lists, configured prefix
 # share/doc/wivrn-macos/                  licenses
 #
 # The tree is self-contained (no Homebrew or Vulkan SDK at run time) and ad-hoc signed.
@@ -86,6 +86,7 @@ chmod +x "$new/bin/wivrn-server"
 
 cp "$SERVER/server/ipc-stamp" "$new/share/wivrn/ipc-stamp"
 {
+	echo "version=$(cat "$ROOT/VERSION")"
 	echo "wivrn-macos=$(git -C "$ROOT" describe --always --dirty 2>/dev/null || echo unknown)"
 	echo "wivrn=$(sed -n 's/^GIT_TAG:[A-Z]*=//p' "$SERVER/CMakeCache.txt") $(git -C "$ROOT/third_party/wivrn" rev-parse HEAD)"
 	echo "monado-base=$(cat "$ROOT/build/monado-snapshot/.snapshot-base")"

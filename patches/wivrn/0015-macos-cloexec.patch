@@ -1,0 +1,70 @@
+From: wivrn-macos
+Subject: [PATCH] macos-cloexec
+
+---
+ common/wivrn_sockets.cpp   |  1 +
+ common/wivrn_sockets.h     |  2 +-
+ server/sleep_inhibitor.cpp | 15 ++++++++++++++-
+ 3 files changed, 16 insertions(+), 2 deletions(-)
+
+diff --git a/common/wivrn_sockets.cpp b/common/wivrn_sockets.cpp
+index b8c2e5b7c1772dec3057744b8e79be44205123bf..2714dc16c9f2ec06761cd1364eb5be2663ff4e0c 100644
+--- a/common/wivrn_sockets.cpp
++++ b/common/wivrn_sockets.cpp
+@@ -220,6 +220,7 @@ wivrn::TCPListener::TCPListener(int port)
+ 	{
+ 		throw std::system_error{errno, std::generic_category()};
+ 	}
++	fcntl(fd, F_SETFD, FD_CLOEXEC);
+ 
+ 	int reuse_addr = 1;
+ 	if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse_addr, sizeof(reuse_addr)) < 0)
+diff --git a/common/wivrn_sockets.h b/common/wivrn_sockets.h
+index 17cc802b51ccebec2467e448e89cc9eee205aefb..efdccfe74d48d7fe805a8663c90c214823b46cfd 100644
+--- a/common/wivrn_sockets.h
++++ b/common/wivrn_sockets.h
+@@ -172,9 +172,9 @@ public:
+ 		socklen_t addrlen = sizeof(addr);
+ 
+ 		int fd2 = ::accept(fd, (sockaddr *)&addr, &addrlen);
+-		fcntl(fd, F_SETFD, FD_CLOEXEC);
+ 		if (fd2 < 0)
+ 			throw std::system_error{errno, std::generic_category()};
++		fcntl(fd2, F_SETFD, FD_CLOEXEC);
+ 
+ 		return {T{fd2}, addr};
+ 	}
+diff --git a/server/sleep_inhibitor.cpp b/server/sleep_inhibitor.cpp
+index 48d4aad89cffcac056a7fb6c19cbf1d07ce260f6..50efcbb5106d7e611710e4acd76b6a3ad7203cf7 100644
+--- a/server/sleep_inhibitor.cpp
++++ b/server/sleep_inhibitor.cpp
+@@ -20,6 +20,7 @@
+ 
+ #ifdef __APPLE__
+ #include <csignal>
++#include <fcntl.h>
+ #include <cstring>
+ #include <iostream>
+ #include <spawn.h>
+@@ -35,8 +36,20 @@ sleep_inhibitor::sleep_inhibitor()
+ {
+ 	std::string parent = std::to_string(getpid());
+ 	const char * argv[] = {"caffeinate", "-i", "-w", parent.c_str(), nullptr};
++	// Only /dev/null as stdio: no sockets or the dashboard's log pipe, which would outlive a server restart
++	posix_spawnattr_t attr;
++	posix_spawnattr_init(&attr);
++	posix_spawnattr_setflags(&attr, POSIX_SPAWN_CLOEXEC_DEFAULT);
++	posix_spawn_file_actions_t actions;
++	posix_spawn_file_actions_init(&actions);
++	posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0);
++	posix_spawn_file_actions_addopen(&actions, 1, "/dev/null", O_WRONLY, 0);
++	posix_spawn_file_actions_addopen(&actions, 2, "/dev/null", O_WRONLY, 0);
+ 	pid_t child;
+-	if (int err = posix_spawn(&child, "/usr/bin/caffeinate", nullptr, nullptr, (char **)argv, environ); err != 0)
++	int err = posix_spawn(&child, "/usr/bin/caffeinate", &actions, &attr, (char **)argv, environ);
++	posix_spawn_file_actions_destroy(&actions);
++	posix_spawnattr_destroy(&attr);
++	if (err != 0)
+ 	{
+ 		std::cerr << "Cannot inhibit sleep: " << strerror(err) << std::endl;
+ 		return;
