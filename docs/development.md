@@ -121,7 +121,6 @@ downloads; `build/kde/prefix` cached on the deps script and the Homebrew Qt vers
 uploads `wivrn-macos.zip` and `WiVRn.zip`.
 
 To release: bump `VERSION`, optionally add notes as `docs/releases/v<version>.md` (else GitHub generates them),
-commit and push to `main`, then run [.github/workflows/release.yml](../.github/workflows/release.yml) by hand
-(`gh workflow run release.yml -f version=<version>`). It checks the input against `VERSION`, runs the same build, and
-only if that succeeds tags the built commit `v<version>` and publishes `WiVRn-<version>.zip` (what WiVRn.app's
-self-update downloads) and `wivrn-macos-<version>.zip` (the install tree). Tags are never pushed by hand.
+commit, push a tag `v<version>`. [.github/workflows/release.yml](../.github/workflows/release.yml) runs the same build,
+checks the tag against `VERSION` and publishes `WiVRn-<version>.zip` (what WiVRn.app's self-update downloads) and
+`wivrn-macos-<version>.zip` (the install tree).

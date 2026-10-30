@@ -1,31 +1,11 @@
 name: Release
 
-# Run by hand with the version from VERSION. The tag v<version> is made only after the build succeeded.
 on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: release version, must equal VERSION (e.g. 26.9.0)
-        required: true
+  push:
+    tags: ["v*"]
 
 jobs:
-  check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Version and tag
-        env:
-          VERSION_INPUT: ${{ inputs.version }}
-        run: |
-          version="$(cat VERSION)"
-          [[ "$VERSION_INPUT" == "$version" ]] || { echo "input $VERSION_INPUT does not match VERSION $version" >&2; exit 1; }
-          [[ "$GITHUB_REF" == refs/heads/main ]] || { echo "release from main only, not $GITHUB_REF" >&2; exit 1; }
-          if git ls-remote --exit-code --tags origin "refs/tags/v$version" > /dev/null; then
-            echo "tag v$version already exists" >&2; exit 1
-          fi
-
   build:
-    needs: check
     uses: ./.github/workflows/build.yml
 
   release:
@@ -45,20 +25,16 @@ jobs:
           name: WiVRn.app
 
       # WiVRn.app's self-update takes the release's WiVRn-<version>.zip and compares <version> with the tag.
-      - name: Tag and publish
+      - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION_INPUT: ${{ inputs.version }}
+          TAG: ${{ github.ref_name }}
         run: |
-          version="$VERSION_INPUT"
-          tag="v$version"
+          version="$(cat VERSION)"
+          [[ "v$version" == "$TAG" ]] || { echo "tag $TAG does not match VERSION $version" >&2; exit 1; }
           mv WiVRn.zip "WiVRn-$version.zip"
           mv wivrn-macos.zip "wivrn-macos-$version.zip"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "$tag" -m "WiVRn for macOS $version" "$GITHUB_SHA"
-          git push origin "refs/tags/$tag"
-          notes="docs/releases/$tag.md"
+          notes="docs/releases/$TAG.md"
           if [[ -f "$notes" ]]; then args=(--notes-file "$notes"); else args=(--generate-notes); fi
-          gh release create "$tag" "WiVRn-$version.zip" "wivrn-macos-$version.zip" --verify-tag \
+          gh release create "$TAG" "WiVRn-$version.zip" "wivrn-macos-$version.zip" --verify-tag \
             --title "WiVRn for macOS $version" "${args[@]}"
