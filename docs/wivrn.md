@@ -365,7 +365,7 @@ WiVRn's own Qt 6 / Kirigami dashboard on macOS (build: [development.md](developm
 - Server: with `DBUS_SESSION_BUS_ADDRESS` set it connects (`create_dbus_connection`, GDBus over `unix:path=`, EXTERNAL
   auth works on macOS) and owns `io.github.wivrn.Server`; without it, as before (skeleton as state store only).
 - Dashboard `main.cpp`: no session bus on macOS, so unless `DBUS_SESSION_BUS_ADDRESS` is set it uses
-  `$DARWIN_USER_TEMP_DIR/wivrn/dbus-session`: reuses a live bus there, else starts `dbus-daemon` (next to the
+  `$DARWIN_USER_TEMP_DIR/wivrn/dbus-<pid>` (0018; before: a shared `dbus-session`), starts `dbus-daemon` (next to the
   executable, else Homebrew's) with a generated minimal session config, exports the address (the server it starts
   inherits it) and stops the daemon on exit. Chosen over a Homebrew launchd agent: self-contained, no plist or install
   step, gone with the app. `VK_DRIVER_FILES` = the bundle's `Resources/vulkan/icd.d/MoltenVK_icd.json` else
@@ -417,6 +417,19 @@ and quit it, so the server is stopped, then the bus, as on a normal quit. For a 
 a watchdog first thing in `main` (still single-threaded) that holds a pipe's read end; the dashboard sends it the pids
 of the bus and the servers it starts (and those that exit). At EOF it SIGTERMs them, newest first, and SIGKILLs any
 still alive after 5 s. `WIVRN_DBUS_DIR` overrides the bus dir (`$DARWIN_USER_TEMP_DIR/wivrn`) for side-by-side tests.
+
+**0018-macos-dashboard-bus-per-instance** (2026-10-31)
+
+After the 26.9.0 to 26.9.1 self-update the server didn't start ("Failed to connect to dbus ... No such file or
+directory"); a later normal launch worked. The updater relaunches the app with `open` from a script the old dashboard
+started, and `open` passes its environment on, so the new dashboard inherited `DBUS_SESSION_BUS_ADDRESS` (and
+`VK_DRIVER_FILES`), which the old one sets for its private bus. Seeing the variable, it started no bus, and the old
+bus had gone with the old dashboard. Now:
+- each dashboard runs its own bus on `<bus dir>/dbus-<pid>` (sockets of dead pids and the old `dbus-session` are
+  removed), and waits until it answers before going on; an inherited address in the bus dir is ignored, any other one
+  is used if a bus answers there;
+- the updater's script waits for the old dashboard's process group (its bus, servers and watchdog; at most 20 s) to be
+  gone, and unsets both variables before `open`.
 
 ## Step 7 findings (2026-10-24)
 

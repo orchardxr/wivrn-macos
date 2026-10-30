@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run the dev build of wivrn-dashboard (scripts/build-dashboard.sh) with build/wivrn's server.
 #   scripts/run-dashboard.sh [wivrn-server args...]    e.g. --no-manage-active-runtime; the dashboard passes them on
-# The dashboard starts a private dbus-daemon ($(getconf DARWIN_USER_TEMP_DIR)wivrn/dbus-session) and the server on it.
+# The dashboard starts a private dbus-daemon ($(getconf DARWIN_USER_TEMP_DIR)wivrn/dbus-<pid>) and the server on it.
 # Don't run it next to another wivrn-server: both want port 9757 and the same comp_ipc socket.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

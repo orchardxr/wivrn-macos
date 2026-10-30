@@ -1,0 +1,113 @@
+From: wivrn-macos
+Subject: [PATCH] macos-dashboard-bus-per-instance
+
+---
+ dashboard/main.cpp    | 45 +++++++++++++++++++++++++++++++++++----------
+ dashboard/updater.cpp |  6 +++++-
+ 2 files changed, 40 insertions(+), 11 deletions(-)
+
+diff --git a/dashboard/main.cpp b/dashboard/main.cpp
+index 212ccc2ab8d76453c4e1b34f13cc9dcaa672932d..a63faf24c1981a2c8bdbfebef99e54e1dc739993 100644
+--- a/dashboard/main.cpp
++++ b/dashboard/main.cpp
+@@ -20,6 +20,9 @@
+ #include <QFile>
+ #include <QProcess>
+ #include <QDateTime>
++#include <QDeadlineTimer>
++#include <QThread>
++#include <cerrno>
+ #include <QSocketNotifier>
+ #include <QStandardPaths>
+ #include <csignal>
+@@ -42,27 +45,42 @@ struct stop_process
+ 	}
+ };
+ 
+-static std::unique_ptr<QProcess, stop_process> start_session_bus()
++static bool bus_running(const QString & address)
+ {
+-	if (qEnvironmentVariableIsSet("DBUS_SESSION_BUS_ADDRESS"))
+-		return {};
++	auto probe = QDBusConnection::connectToBus(address, "wivrn-probe");
++	bool running = probe.isConnected();
++	QDBusConnection::disconnectFromBus("wivrn-probe");
++	return running;
++}
+ 
++static std::unique_ptr<QProcess, stop_process> start_session_bus()
++{
+ 	char tmp[PATH_MAX];
+ 	QString dir = qEnvironmentVariable("WIVRN_DBUS_DIR");
+ 	if (dir.isEmpty())
+ 		dir = (confstr(_CS_DARWIN_USER_TEMP_DIR, tmp, sizeof(tmp)) > 0 ? QString(tmp) : QDir::tempPath() + "/") + "wivrn";
+ 	QDir().mkpath(dir);
+-	QString socket = dir + "/dbus-session";
+-	QString address = "unix:path=" + socket;
+-	qputenv("DBUS_SESSION_BUS_ADDRESS", address.toUtf8());
+ 
++	// A bus in our dir is another dashboard's, possibly inherited from the one the updater relaunched us from and
++	// shutting down: each dashboard runs its own, on its own socket
++	if (QString inherited = qEnvironmentVariable("DBUS_SESSION_BUS_ADDRESS"); not inherited.isEmpty())
+ 	{
+-		auto probe = QDBusConnection::connectToBus(address, "wivrn-probe");
+-		bool running = probe.isConnected();
+-		QDBusConnection::disconnectFromBus("wivrn-probe");
+-		if (running)
++		if (not inherited.startsWith("unix:path=" + dir + "/") and bus_running(inherited))
+ 			return {};
++		qInfo() << "Not using the inherited D-Bus address" << inherited;
+ 	}
++
++	for (const QFileInfo & old: QDir(dir).entryInfoList({"dbus-*"}, QDir::System | QDir::Files))
++	{
++		bool ok = false;
++		pid_t pid = old.fileName().mid(5).toInt(&ok);
++		if (old.fileName() == "dbus-session" or (ok and kill(pid, 0) != 0 and errno == ESRCH))
++			QFile::remove(old.filePath());
++	}
++
++	QString socket = dir + "/dbus-" + QString::number(getpid());
++	QString address = "unix:path=" + socket;
++	qputenv("DBUS_SESSION_BUS_ADDRESS", address.toUtf8());
+ 	QFile::remove(socket);
+ 
+ 	QString config = dir + "/dbus-session.conf";
+@@ -92,6 +110,13 @@ static std::unique_ptr<QProcess, stop_process> start_session_bus()
+ 	if (not bus->waitForReadyRead(5000))
+ 		qWarning() << "Failed to start" << daemon << bus->errorString();
+ 	watch_child(bus->processId());
++	QDeadlineTimer deadline(5000);
++	while (not bus_running(address) and not deadline.hasExpired())
++		QThread::msleep(50);
++	if (bus_running(address))
++		qInfo() << "D-Bus running at" << address;
++	else
++		qWarning() << "No D-Bus at" << address;
+ 	return bus;
+ }
+ 
+diff --git a/dashboard/updater.cpp b/dashboard/updater.cpp
+index a414cbca2edff2c6c2e0c9668334612d95a653fd..f88673a79f8f23c43b7c097211b332277f10b867 100644
+--- a/dashboard/updater.cpp
++++ b/dashboard/updater.cpp
+@@ -251,14 +251,18 @@ void updater::unpack(const QString & zip)
+ 			if (status != 0)
+ 				return set_state(State::Error, i18n("Signature check failed: %1", QString::fromUtf8(codesign->readAllStandardError()).trimmed()));
+ 
+-			// After we exit: swap the bundles (restoring the old one on failure) and open the result
++			// Once we and our process group (bus, server, watchdog) are gone: swap the bundles (restoring the old one on
++			// failure) and open the result, without our private bus address
+ 			const char * script = R"(while kill -0 "$1" 2>/dev/null; do sleep 0.2; done
++i=0
++while kill -0 -- "-$1" 2>/dev/null && [ $i -lt 100 ]; do sleep 0.2; i=$((i + 1)); done
+ old="$2.old-update"
+ rm -rf "$old"
+ if mv "$2" "$old"; then
+ 	if mv "$3" "$2"; then rm -rf "$old"; else mv "$old" "$2"; fi
+ fi
+ xattr -dr com.apple.quarantine "$2" 2>/dev/null
++unset DBUS_SESSION_BUS_ADDRESS VK_DRIVER_FILES
+ open "$2")";
+ 			if (not QProcess::startDetached("/bin/sh", {"-c", script, "sh", QString::number(getpid()), app_bundle(), app}))
+ 				return set_state(State::Error, i18n("Cannot start the installer"));
