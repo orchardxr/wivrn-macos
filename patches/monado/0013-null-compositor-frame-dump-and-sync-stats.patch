@@ -1,4 +1,4 @@
-From: macvr
+From: wivrn-macos
 Subject: [PATCH] null-compositor-frame-dump-and-sync-stats
 
 ---
@@ -316,7 +316,7 @@ index 0000000000000000000000000000000000000000..668af9c4b37c64af1326906b2dcfca48
 --- /dev/null
 +++ b/src/xrt/compositor/util/comp_sync_stats.h
 @@ -0,0 +1,68 @@
-+// Copyright 2026, macvr contributors.
++// Copyright 2026, wivrn-macos contributors.
 +// SPDX-License-Identifier: BSL-1.0
 +/*!
 + * @file

@@ -1,4 +1,4 @@
-From: macvr
+From: wivrn-macos
 Subject: [PATCH] khr-metal-enable
 
 ---
@@ -83,7 +83,7 @@ index 0000000000000000000000000000000000000000..4038cd72a1ab746f71d87042ed8f21fa
 --- /dev/null
 +++ b/src/xrt/compositor/client/comp_metal_client.m
 @@ -0,0 +1,537 @@
-+// Copyright 2026, macvr contributors.
++// Copyright 2026, wivrn-macos contributors.
 +// SPDX-License-Identifier: BSL-1.0
 +/*!
 + * @file
@@ -699,7 +699,7 @@ index 0000000000000000000000000000000000000000..f2fc92a5ecb38738a2facfdefaf1256e
 --- /dev/null
 +++ b/src/xrt/include/xrt/xrt_gfx_metal.h
 @@ -0,0 +1,33 @@
-+// Copyright 2026, macvr contributors.
++// Copyright 2026, wivrn-macos contributors.
 +// SPDX-License-Identifier: BSL-1.0
 +/*!
 + * @file
@@ -879,7 +879,7 @@ index 0000000000000000000000000000000000000000..51eeca16056b721d4056dcc240073730
 --- /dev/null
 +++ b/src/xrt/state_trackers/oxr/oxr_metal.m
 @@ -0,0 +1,54 @@
-+// Copyright 2026, macvr contributors.
++// Copyright 2026, wivrn-macos contributors.
 +// SPDX-License-Identifier: BSL-1.0
 +/*!
 + * @file
@@ -1020,7 +1020,7 @@ index 0000000000000000000000000000000000000000..1c3c01fe5d14a8365ff6b9515a890c7b
 --- /dev/null
 +++ b/src/xrt/state_trackers/oxr/oxr_session_gfx_metal.c
 @@ -0,0 +1,31 @@
-+// Copyright 2026, macvr contributors.
++// Copyright 2026, wivrn-macos contributors.
 +// SPDX-License-Identifier: BSL-1.0
 +/*!
 + * @file
@@ -1057,7 +1057,7 @@ index 0000000000000000000000000000000000000000..639c97383c72d862671b1e6684b42f48
 --- /dev/null
 +++ b/src/xrt/state_trackers/oxr/oxr_swapchain_metal.c
 @@ -0,0 +1,52 @@
-+// Copyright 2026, macvr contributors.
++// Copyright 2026, wivrn-macos contributors.
 +// SPDX-License-Identifier: BSL-1.0
 +/*!
 + * @file

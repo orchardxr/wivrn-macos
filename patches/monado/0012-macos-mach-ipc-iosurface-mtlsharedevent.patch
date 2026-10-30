@@ -1,4 +1,4 @@
-From: macvr
+From: wivrn-macos
 Subject: [PATCH] macos-mach-ipc-iosurface-mtlsharedevent
 
 ---
@@ -311,7 +311,7 @@ index 0000000000000000000000000000000000000000..726fd83362472c18f7e59d8fea02f6b9
 --- /dev/null
 +++ b/src/xrt/auxiliary/vk/vk_metal_apple.m
 @@ -0,0 +1,274 @@
-+// Copyright 2026, macvr contributors.
++// Copyright 2026, wivrn-macos contributors.
 +// SPDX-License-Identifier: BSL-1.0
 +/*!
 + * @file
@@ -332,7 +332,7 @@ index 0000000000000000000000000000000000000000..726fd83362472c18f7e59d8fea02f6b9
 +- (mach_port_t)eventPort;
 +@end
 +
-+@protocol MacvrMTLDeviceSPI <MTLDevice>
++@protocol WivrnMTLDeviceSPI <MTLDevice>
 +- (id<MTLSharedEvent>)newSharedEventWithMachPort:(mach_port_t)machPort;
 +@end
 +
@@ -551,7 +551,7 @@ index 0000000000000000000000000000000000000000..726fd83362472c18f7e59d8fea02f6b9
 +		return VK_ERROR_FEATURE_NOT_PRESENT;
 +	}
 +
-+	id<MTLSharedEvent> event = [(id<MacvrMTLDeviceSPI>)dev newSharedEventWithMachPort:port];
++	id<MTLSharedEvent> event = [(id<WivrnMTLDeviceSPI>)dev newSharedEventWithMachPort:port];
 +	if (event == nil) {
 +		VK_ERROR(vk, "newSharedEventWithMachPort: failed for port %u", port);
 +		return VK_ERROR_INVALID_EXTERNAL_HANDLE;
@@ -1048,7 +1048,7 @@ index 0000000000000000000000000000000000000000..0cf5f38e0f19e05a88bb2d13927f2104
 --- /dev/null
 +++ b/src/xrt/ipc/shared/ipc_mach_apple.c
 @@ -0,0 +1,681 @@
-+// Copyright 2026, macvr contributors.
++// Copyright 2026, wivrn-macos contributors.
 +// SPDX-License-Identifier: BSL-1.0
 +/*!
 + * @file
@@ -1217,7 +1217,7 @@ index 0000000000000000000000000000000000000000..0cf5f38e0f19e05a88bb2d13927f2104
 +	}
 +	clean[n] = '\0';
 +
-+	return snprintf(out_name, size, "org.macvr.monado.%u.%s.%08x", (unsigned)getuid(), clean, fnv1a32(path));
++	return snprintf(out_name, size, "org.orchardxr.wivrn.%u.%s.%08x", (unsigned)getuid(), clean, fnv1a32(path));
 +}
 +
 +
@@ -1735,7 +1735,7 @@ index 0000000000000000000000000000000000000000..7cf0112e509f3dbd51258a01adf9e702
 --- /dev/null
 +++ b/src/xrt/ipc/shared/ipc_mach_apple.h
 @@ -0,0 +1,81 @@
-+// Copyright 2026, macvr contributors.
++// Copyright 2026, wivrn-macos contributors.
 +// SPDX-License-Identifier: BSL-1.0
 +/*!
 + * @file
@@ -1766,7 +1766,7 @@ index 0000000000000000000000000000000000000000..7cf0112e509f3dbd51258a01adf9e702
 +
 +/*!
 + * Bootstrap service name for the IPC socket at @p socket_path:
-+ * `org.macvr.monado.<uid>.<socket basename>.<fnv1a32 of realpath>`, or the value
++ * `org.orchardxr.wivrn.<uid>.<socket basename>.<fnv1a32 of realpath>`, or the value
 + * of `XRT_IPC_MACH_SERVICE` if set.
 + */
 +int
