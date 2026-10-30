@@ -1,5 +1,10 @@
 # Encoder: libmvt (VideoToolbox HEVC/H.264)
 
+> Works with any WiVRn-supported headset; the measurements here were taken on a Quest 3S (hence `adb` and Quest
+> details), and the games measured are Windows games run through [orchardxr/varbor](https://github.com/orchardxr/varbor).
+> Native macOS OpenXR apps (Metal via `XR_KHR_metal_enable`, or Vulkan via MoltenVK) work through the same runtime,
+> barely tested so far.
+
 `encoder/` builds `libmvt.a`, a small C library (header `encoder/include/mvt.h`, `extern "C"`) holding the
 VideoToolbox session code from an earlier private prototype. It is the core of WiVRn's
 `video_encoder_vt` backend (plan decision D5, step 5). Test harness: `tests/encoder/` (`run.sh`).

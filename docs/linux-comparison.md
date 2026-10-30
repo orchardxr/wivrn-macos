@@ -1,5 +1,10 @@
 # Linux WiVRn 26.9 vs macOS WiVRn port (2026-10-26, re-run 2026-10-28)
 
+> Works with any WiVRn-supported headset; the measurements here were taken on a Quest 3S (hence `adb` and Quest
+> details), and the games measured are Windows games run through [orchardxr/varbor](https://github.com/orchardxr/varbor).
+> Native macOS OpenXR apps (Metal via `XR_KHR_metal_enable`, or Vulkan via MoltenVK) work through the same runtime,
+> barely tested so far.
+
 Same Quest 3S (client WiVRn 26.9, 5 GHz Wi-Fi; 160 MHz channel on 10-28), Half-Life: Alyx buildid 25487405 (Linux re-run: 26227071, see notes), save
 `s6/steamvr_quit` (4558941 B, sha256 8fabf613…c8a0, identical on both), 90 Hz, `vr_fidelity_level_auto 0`,
 `vr_fidelity_level 3` (renders 2198×2302 per eye on both: WiVRn recommends that size on both servers).

@@ -2,20 +2,25 @@
 
 [![Build](https://github.com/orchardxr/wivrn-macos/actions/workflows/build.yml/badge.svg)](https://github.com/orchardxr/wivrn-macos/actions/workflows/build.yml)
 
-A macOS (Apple Silicon) port of the [WiVRn](https://github.com/WiVRn/WiVRn) server: stream OpenXR apps from a Mac to
-a Meta Quest running the stock WiVRn client 26.9. It has the server (Monado + a VideoToolbox HEVC encoder + a Core
-Audio tap), and the OpenXR runtime that apps load. The runtime is a universal (x86_64 + arm64) IPC client, so Rosetta
-and native apps can both use it.
+Part of [orchardxr](https://github.com/orchardxr): vibe-coded support for VR on macOS: native and Windows games, on
+Apple Silicon, streamed via WiVRn.
 
-The model is Linux WiVRn: the server and its runtime are installed once, and apps (or bridges such as
-[VarboR](https://github.com/orchardxr/varbor)'s Wine OpenXR bridge) load the runtime through its manifest. This code
-came from orchardxr/varbor (formerly MacVR), where the port was developed; this repository has a fresh history.
+A macOS (Apple Silicon) port of the [WiVRn](https://github.com/WiVRn/WiVRn) server: stream OpenXR apps from a Mac to
+any WiVRn-supported headset running the stock WiVRn client 26.9 (tested on Quest 3S). It has the server (Monado + a
+VideoToolbox HEVC encoder + a Core Audio tap), and the OpenXR runtime that apps load. The runtime is a universal
+(x86_64 + arm64) IPC client, so Rosetta and native apps can both use it.
+
+The model is Linux WiVRn: the server and its runtime are installed once, and apps load the runtime through its
+manifest. Native macOS OpenXR apps work through it, with Metal (`XR_KHR_metal_enable`) or Vulkan (MoltenVK); that is
+barely tested so far. Windows games are supported via [orchardxr/varbor](https://github.com/orchardxr/varbor), native
+Mac OpenVR games via [orchardxr/opencomposite-macos](https://github.com/orchardxr/opencomposite-macos). This code came
+from orchardxr/varbor (formerly MacVR), where the port was developed; this repository has a fresh history.
 
 ## Layout
 
 | Path | What |
 |---|---|
-| `third_party/wivrn` | WiVRn v26.9 (`bbc6e4cc`), submodule, matches the Quest client 26.9 |
+| `third_party/wivrn` | WiVRn v26.9 (`bbc6e4cc`), submodule, matches the headset client 26.9 |
 | `third_party/monado` | Monado `f037264d` (WiVRn v26.9's `monado-rev`), submodule |
 | `third_party/openxr-sdk` | OpenXR-SDK-Source `release-1.1.65`, submodule: loader and hello_xr for the test programs |
 | `patches/wivrn`, `patches/monado`, `patches/openxr-sdk` | Our changes to upstream, as patch series ([docs/wivrn.md](docs/wivrn.md)) |

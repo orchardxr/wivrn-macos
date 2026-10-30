@@ -1,6 +1,11 @@
 # WiVRn server on macOS
 
-WiVRn v26.9 (`third_party/wivrn`, matching the Quest client 26.9) built natively with Xcode clang, MoltenVK 1.4.2
+> Works with any WiVRn-supported headset; the measurements here were taken on a Quest 3S (hence `adb` and Quest
+> details), and the games measured are Windows games run through [orchardxr/varbor](https://github.com/orchardxr/varbor).
+> Native macOS OpenXR apps (Metal via `XR_KHR_metal_enable`, or Vulkan via MoltenVK) work through the same runtime,
+> barely tested so far.
+
+WiVRn v26.9 (`third_party/wivrn`, matching the headset client 26.9) built natively with Xcode clang, MoltenVK 1.4.2
 and a VideoToolbox encoder (libmvt, `encoder/`). The wire protocol is unchanged: the server publishes protocol hash
 `fc26e619b7ab80f8`, and the 26.9 client accepts it.
 
