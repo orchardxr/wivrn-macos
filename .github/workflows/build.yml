@@ -32,7 +32,7 @@ env:
 jobs:
   build:
     runs-on: macos-26
-    timeout-minutes: 90
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
         with:
@@ -109,6 +109,25 @@ jobs:
       - name: Install tree
         run: scripts/build.sh install
 
+      # The KDE frameworks Homebrew lacks, keyed on their recipe and the Homebrew Qt they are built against.
+      - name: Qt version
+        id: qt
+        run: echo "version=$(brew list --versions qt | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+      - name: Cache KDE prefix
+        uses: actions/cache@v4
+        with:
+          path: build/kde/prefix
+          key: kde-prefix-${{ runner.arch }}-qt${{ steps.qt.outputs.version }}-${{ hashFiles('scripts/build-dashboard-deps.sh') }}
+
+      - name: Dashboard dependencies (KDE frameworks)
+        run: scripts/build.sh dashboard-deps
+
+      - name: Dashboard
+        run: scripts/build.sh dashboard
+
+      - name: WiVRn.app
+        run: scripts/build.sh app
+
       - name: Server starts
         run: |
           t="$RUNNER_TEMP/wivrn-smoke"
@@ -133,13 +152,20 @@ jobs:
           name: build-logs
           path: build/logs
 
-      - name: Zip the install tree
+      - name: Zip the install tree and WiVRn.app
         run: |
           rm -rf build/dist && mkdir -p build/dist
           ditto build/install build/dist/wivrn-macos
           ditto -c -k --keepParent build/dist/wivrn-macos build/wivrn-macos.zip
+          ditto -c -k --keepParent build/WiVRn.app build/WiVRn.zip
+          du -sh build/WiVRn.app build/WiVRn.zip build/wivrn-macos.zip
 
       - uses: actions/upload-artifact@v4
         with:
           name: wivrn-macos
           path: build/wivrn-macos.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WiVRn.app
+          path: build/WiVRn.zip

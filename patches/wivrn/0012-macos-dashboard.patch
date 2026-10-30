@@ -1,0 +1,366 @@
+From: wivrn-macos
+Subject: [PATCH] macos-dashboard
+
+---
+ CMakeLists.txt             |  8 +++-
+ dashboard/CMakeLists.txt   |  5 +++
+ dashboard/avahi.cpp        | 26 +++++++++++++
+ dashboard/firewall.cpp     |  4 ++
+ dashboard/main.cpp         | 96 ++++++++++++++++++++++++++++++++++++++++++++++
+ dashboard/qml/Main.qml     |  2 +-
+ dashboard/vulkan_info.cpp  |  5 +++
+ dashboard/wivrn_server.cpp | 21 ++++++++++
+ server/main.cpp            | 16 +++++---
+ 9 files changed, 175 insertions(+), 8 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 98d344ccf989386da64592f9fc5965fc282f987b..c7d766c8481156cd56acfad884e76454cc32b546 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -198,7 +198,13 @@ if (WIVRN_BUILD_DASHBOARD)
+     find_package(ECM 5.115 REQUIRED NO_MODULE)
+     list(APPEND CMAKE_MODULE_PATH "${ECM_MODULE_PATH}")
+ 
+-    find_package(KF6 REQUIRED COMPONENTS Kirigami I18n CoreAddons QQC2DesktopStyle IconThemes)
++    if(APPLE)
++        # No org.kde.desktop style: Qt's own macOS style
++        find_package(Qt6 REQUIRED COMPONENTS DBus)
++        find_package(KF6 REQUIRED COMPONENTS Kirigami I18n CoreAddons IconThemes)
++    else()
++        find_package(KF6 REQUIRED COMPONENTS Kirigami I18n CoreAddons QQC2DesktopStyle IconThemes)
++    endif()
+     find_package(KF6Kirigami)
+     find_package(nlohmann_json REQUIRED)
+     find_package(QCoro6 REQUIRED COMPONENTS Core Network Qml)
+diff --git a/dashboard/CMakeLists.txt b/dashboard/CMakeLists.txt
+index 1adad4b1f6c1a5ae5eebba4fb0a255c28484c089..dd9ca4bdf36199df33f8812ea7842f9425d16b6e 100644
+--- a/dashboard/CMakeLists.txt
++++ b/dashboard/CMakeLists.txt
+@@ -87,8 +87,13 @@ target_link_libraries(wivrn-dashboard
+     wivrn-common-base
+     wivrn-common-server
+     wivrn-external
++    nlohmann_json::nlohmann_json
+ )
+ 
++if(APPLE)
++    target_link_libraries(wivrn-dashboard PRIVATE "-framework SystemConfiguration" "-framework CoreFoundation")
++endif()
++
+ install(TARGETS wivrn-dashboard ${KDE_INSTALL_TARGETS_DEFAULT_ARGS})
+ 
+ install(FILES io.github.wivrn.wivrn.metainfo.xml
+diff --git a/dashboard/avahi.cpp b/dashboard/avahi.cpp
+index f9d6acbcc0084fefbee94ab35f4c9584a04c0448..f12b5f4e5ecbed1ae1a67c7059abd5772f822607 100644
+--- a/dashboard/avahi.cpp
++++ b/dashboard/avahi.cpp
+@@ -23,6 +23,31 @@
+ 
+ #include <QDBusInterface>
+ 
++#ifdef __APPLE__
++#include <dns_sd.h>
++
++// The server publishes through mDNSResponder (Bonjour), which is always there
++bool avahi::installed()
++{
++	return true;
++}
++
++bool avahi::running()
++{
++	DNSServiceRef ref;
++	if (DNSServiceCreateConnection(&ref) != kDNSServiceErr_NoError)
++		return false;
++	DNSServiceRefDeallocate(ref);
++	return true;
++}
++
++bool avahi::canStart()
++{
++	return false;
++}
++
++void avahi::start() {}
++#else
+ bool avahi::installed()
+ {
+ 	return not find_executable("avahi-daemon").isEmpty();
+@@ -57,3 +82,4 @@ void avahi::start()
+ 		pkexec.release()->deleteLater();
+ 	});
+ }
++#endif
+diff --git a/dashboard/firewall.cpp b/dashboard/firewall.cpp
+index fbbce9434c787c60eff24e9a82e48aa96f36a87b..7deef0276e747867f0aa304e0fd1a168b49f02c8 100644
+--- a/dashboard/firewall.cpp
++++ b/dashboard/firewall.cpp
+@@ -171,6 +171,10 @@ public:
+ 
+ std::unique_ptr<firewall::Impl> make_impl()
+ {
++#ifdef __APPLE__
++	// The application firewall asks the user when the server first listens
++	return std::make_unique<firewall::Impl>();
++#endif
+ 	if (auto fwd = std::make_unique<firewalld>(); fwd->enabled())
+ 		return fwd;
+ 
+diff --git a/dashboard/main.cpp b/dashboard/main.cpp
+index 297b77dcba967924c153a4d1b86092749b26242a..e9bece5e69cce0d3f0ec1ca9bea5588be665fbc6 100644
+--- a/dashboard/main.cpp
++++ b/dashboard/main.cpp
+@@ -14,10 +14,100 @@
+ #include <QQuickWindow>
+ #include <QStringLiteral>
+ 
++#ifdef __APPLE__
++#include <QDBusConnection>
++#include <QDir>
++#include <QFile>
++#include <QProcess>
++#include <QStandardPaths>
++#include <unistd.h>
++
++// macOS has no session bus: run a private one in the user temp dir, shared with the servers we start
++struct stop_process
++{
++	void operator()(QProcess * p)
++	{
++		p->terminate();
++		p->waitForFinished(1000);
++		delete p;
++	}
++};
++
++static std::unique_ptr<QProcess, stop_process> start_session_bus()
++{
++	if (qEnvironmentVariableIsSet("DBUS_SESSION_BUS_ADDRESS"))
++		return {};
++
++	char tmp[PATH_MAX];
++	QString dir = (confstr(_CS_DARWIN_USER_TEMP_DIR, tmp, sizeof(tmp)) > 0 ? QString(tmp) : QDir::tempPath() + "/") + "wivrn";
++	QDir().mkpath(dir);
++	QString socket = dir + "/dbus-session";
++	QString address = "unix:path=" + socket;
++	qputenv("DBUS_SESSION_BUS_ADDRESS", address.toUtf8());
++
++	{
++		auto probe = QDBusConnection::connectToBus(address, "wivrn-probe");
++		bool running = probe.isConnected();
++		QDBusConnection::disconnectFromBus("wivrn-probe");
++		if (running)
++			return {};
++	}
++	QFile::remove(socket);
++
++	QString config = dir + "/dbus-session.conf";
++	if (QFile f(config); f.open(QFile::WriteOnly | QFile::Truncate))
++		f.write(R"(<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN"
++ "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
++<busconfig>
++  <type>session</type>
++  <keep_umask/>
++  <listen>unix:tmpdir=/tmp</listen>
++  <auth>EXTERNAL</auth>
++  <policy context="default">
++    <allow send_destination="*" eavesdrop="true"/>
++    <allow eavesdrop="true"/>
++    <allow own="*"/>
++  </policy>
++</busconfig>
++)");
++
++	QString daemon = QCoreApplication::applicationDirPath() + "/dbus-daemon";
++	if (not QFileInfo::exists(daemon))
++		daemon = QStandardPaths::findExecutable("dbus-daemon", {"/opt/homebrew/opt/dbus/bin", "/usr/local/opt/dbus/bin"});
++
++	std::unique_ptr<QProcess, stop_process> bus{new QProcess};
++	bus->setProcessChannelMode(QProcess::ForwardedErrorChannel);
++	bus->start(daemon, {"--nofork", "--print-address", "--config-file=" + config, "--address=" + address});
++	if (not bus->waitForReadyRead(5000))
++		qWarning() << "Failed to start" << daemon << bus->errorString();
++	return bus;
++}
++
++// MoltenVK for the dashboard and the server: the bundled ICD, else Homebrew's
++static void set_vulkan_driver()
++{
++	if (qEnvironmentVariableIsSet("VK_DRIVER_FILES") or qEnvironmentVariableIsSet("VK_ICD_FILENAMES"))
++		return;
++	for (const QString & icd: {QCoreApplication::applicationDirPath() + "/../Resources/vulkan/icd.d/MoltenVK_icd.json",
++	                           QString("/opt/homebrew/opt/molten-vk/etc/vulkan/icd.d/MoltenVK_icd.json")})
++	{
++		if (QFileInfo::exists(icd))
++		{
++			qputenv("VK_DRIVER_FILES", QFileInfo(icd).canonicalFilePath().toUtf8());
++			return;
++		}
++	}
++}
++#endif
++
+ int main(int argc, char * argv[])
+ {
+ 	KIconTheme::initTheme();
+ 	QApplication app(argc, argv);
++#ifdef __APPLE__
++	auto session_bus = start_session_bus();
++	set_vulkan_driver();
++#endif
+ 	KLocalizedString::setApplicationDomain("wivrn-dashboard");
+ 	app.setOrganizationName(QStringLiteral("wivrn"));
+ 
+@@ -51,11 +141,17 @@ int main(int argc, char * argv[])
+ 	// Work around QTBUG-45105, QTBUG-46074, QTBUG-51112: flicker when resizing
+ 	QQuickWindow::setSceneGraphBackend(QString::fromLatin1("software"));
+ 
++#ifndef __APPLE__
+ 	QApplication::setStyle(QStringLiteral("breeze"));
+ 	if (qEnvironmentVariableIsEmpty("QT_QUICK_CONTROLS_STYLE"))
+ 	{
+ 		QQuickStyle::setStyle(QStringLiteral("org.kde.desktop"));
+ 	}
++#else
++	// Kirigami's pages and toolbars draw badly with the native macOS style
++	if (qEnvironmentVariableIsEmpty("QT_QUICK_CONTROLS_STYLE"))
++		QQuickStyle::setStyle(QStringLiteral("Fusion"));
++#endif
+ 
+ 	QQmlApplicationEngine engine;
+ 
+diff --git a/dashboard/qml/Main.qml b/dashboard/qml/Main.qml
+index 88144639f7392fd4500ab883417dd790b9ea0440..38774afd0422dca8f387320b13f6461e4ea6d51e 100644
+--- a/dashboard/qml/Main.qml
++++ b/dashboard/qml/Main.qml
+@@ -209,7 +209,7 @@ Kirigami.ApplicationWindow {
+                         text: i18n("No OpenVR compatibility detected, Steam games won't be able to load VR.\nInstall xrizer or OpenComposite.")
+                         type: Kirigami.MessageType.Warning
+                         showCloseButton: true
+-                        visible: WivrnServer.openVRCompat.length == 0 && Settings.openvr == ""
++                        visible: Qt.platform.os != "osx" && WivrnServer.openVRCompat.length == 0 && Settings.openvr == ""
+                     }
+ 
+                     Kirigami.InlineMessage {
+diff --git a/dashboard/vulkan_info.cpp b/dashboard/vulkan_info.cpp
+index ca2ec45f9dc658250727b8c2960c703f0caaf91e..08bef1fdff51dee27fc41f762975f472f1237843 100644
+--- a/dashboard/vulkan_info.cpp
++++ b/dashboard/vulkan_info.cpp
+@@ -29,7 +29,12 @@ vulkan_info::vulkan_info()
+ 		vk::raii::Context context;
+ 
+ 		vk::ApplicationInfo app_info{"WiVRn dashboard", 1, "No engine", 1, VK_API_VERSION_1_1};
++#ifdef __APPLE__
++		const char * portability = VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME;
++		vk::InstanceCreateInfo instance_info{vk::InstanceCreateFlagBits::eEnumeratePortabilityKHR, &app_info, 0, nullptr, 1, &portability};
++#else
+ 		vk::InstanceCreateInfo instance_info{vk::InstanceCreateFlags{0}, &app_info};
++#endif
+ 		vk::raii::Instance vulkan{context, instance_info};
+ 
+ 		auto devices = vulkan.enumeratePhysicalDevices();
+diff --git a/dashboard/wivrn_server.cpp b/dashboard/wivrn_server.cpp
+index a4910769247fee6de86b842a021fc11a5594eaa0..2971c9b78edf272a55e59acb273dbab5636a26b3 100644
+--- a/dashboard/wivrn_server.cpp
++++ b/dashboard/wivrn_server.cpp
+@@ -35,10 +35,18 @@
+ #include <vulkan/vulkan.hpp>
+ #include <vulkan/vulkan_raii.hpp>
+ 
++#ifdef __APPLE__
++#include <SystemConfiguration/SystemConfiguration.h>
++#endif
++
+ using namespace std::chrono_literals;
+ 
+ static QString server_path()
+ {
++#ifdef __APPLE__
++	if (QString path = qEnvironmentVariable("WIVRN_SERVER"); not path.isEmpty())
++		return path;
++#endif
+ 	return QCoreApplication::applicationDirPath() + "/wivrn-server";
+ }
+ 
+@@ -514,6 +522,18 @@ void wivrn_server::disable_pairing()
+ 
+ QString wivrn_server::hostname()
+ {
++#ifdef __APPLE__
++	// The server's Bonjour name
++	static auto _hostname = []() -> QString {
++		QString name = "no-hostname";
++		if (CFStringRef cf = SCDynamicStoreCopyComputerName(nullptr, nullptr))
++		{
++			name = QString::fromCFString(cf);
++			CFRelease(cf);
++		}
++		return name;
++	}();
++#else
+ 	static auto _hostname = []() -> QString {
+ 		OrgFreedesktopDBusPropertiesInterface hostname1("org.freedesktop.hostname1", "/org/freedesktop/hostname1", QDBusConnection::systemBus());
+ 
+@@ -533,6 +553,7 @@ QString wivrn_server::hostname()
+ 		qDebug() << "Failed to get hostname";
+ 		return "no-hostname";
+ 	}();
++#endif
+ 
+ 	return _hostname;
+ }
+diff --git a/server/main.cpp b/server/main.cpp
+index 4b9bca1fb373298676f51c7a736abadd75256e1d..93036f49ae05ab7cf88564412e8c6f7bcfe1261d 100644
+--- a/server/main.cpp
++++ b/server/main.cpp
+@@ -1032,7 +1032,7 @@ void on_name_acquired(GDBusConnection * connection, const gchar * name, gpointer
+ 	g_signal_connect(dbus_server, "notify::json-configuration", G_CALLBACK(on_json_configuration), NULL);
+ 	g_signal_connect(dbus_server, "notify::bitrate", G_CALLBACK(on_bitrate), NULL);
+ 
+-	// macOS: the skeleton object is kept as the state store but never exported (no session bus)
++	// macOS without the dashboard's bus: the skeleton is only the state store
+ 	if (connection)
+ 		g_dbus_interface_skeleton_export(G_DBUS_INTERFACE_SKELETON(dbus_server),
+ 		                                 connection,
+@@ -1047,7 +1047,6 @@ void on_name_acquired(GDBusConnection * connection, const gchar * name, gpointer
+ 	wivrn_server_set_client_tab(dbus_server, "");
+ }
+ 
+-#ifndef __APPLE__
+ auto create_dbus_connection()
+ {
+ 	// When process has cap_sys_nice, DBUS_SESSION_BUS_ADDRESS is ignored by gdbus
+@@ -1077,7 +1076,6 @@ auto create_dbus_connection()
+ 	}
+ 	return connection;
+ }
+-#endif
+ 
+ } // namespace
+ 
+@@ -1157,9 +1155,10 @@ int inner_main(int argc, char * argv[], bool show_instructions)
+ #endif
+ 
+ #ifdef __APPLE__
+-	// No session bus: wivrnctl and the dashboard are not available
+-	on_name_acquired(nullptr, nullptr, nullptr);
+-#else
++	// No session bus by default: only the dashboard's private one (DBUS_SESSION_BUS_ADDRESS)
++	if (getenv("DBUS_SESSION_BUS_ADDRESS"))
++	{
++#endif
+ 	// Add dbus server
+ 	auto connection = create_dbus_connection();
+ 	g_bus_own_name_on_connection(connection,
+@@ -1169,6 +1168,11 @@ int inner_main(int argc, char * argv[], bool show_instructions)
+ 	                             nullptr,
+ 	                             nullptr,
+ 	                             nullptr);
++#ifdef __APPLE__
++	}
++	else
++		on_name_acquired(nullptr, nullptr, nullptr);
++#else
+ 
+ 	// Initialize libnotify
+ 	notify_init("WiVRn");

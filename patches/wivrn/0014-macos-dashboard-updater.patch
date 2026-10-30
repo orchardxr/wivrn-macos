@@ -1,0 +1,456 @@
+From: wivrn-macos
+Subject: [PATCH] macos-dashboard-updater
+
+---
+ dashboard/CMakeLists.txt |   2 +
+ dashboard/qml/Main.qml   |  32 ++++++
+ dashboard/updater.cpp    | 263 +++++++++++++++++++++++++++++++++++++++++++++++
+ dashboard/updater.h      |  94 +++++++++++++++++
+ 4 files changed, 391 insertions(+)
+
+diff --git a/dashboard/CMakeLists.txt b/dashboard/CMakeLists.txt
+index dd9ca4bdf36199df33f8812ea7842f9425d16b6e..f34aacbef27760c30df268cad29e8457a06f02f4 100644
+--- a/dashboard/CMakeLists.txt
++++ b/dashboard/CMakeLists.txt
+@@ -27,6 +27,7 @@ add_executable(wivrn-dashboard
+     apk_installer.cpp
+     firewall.cpp
+     vulkan_info.cpp
++    updater.cpp
+ )
+ 
+ set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/../dbus/io.github.wivrn.Server.xml PROPERTIES INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/wivrn_qdbus_types.h")
+@@ -76,6 +77,7 @@ target_link_libraries(wivrn-dashboard
+     Qt6::Gui
+     Qt6::QuickControls2
+     Qt6::Widgets
++    Qt6::Network
+     KF6::CoreAddons
+     KF6::I18n
+     KF6::I18nQml
+diff --git a/dashboard/qml/Main.qml b/dashboard/qml/Main.qml
+index 38774afd0422dca8f387320b13f6461e4ea6d51e..4307d4197b3bd740ea7947c8972eeca432e97dc1 100644
+--- a/dashboard/qml/Main.qml
++++ b/dashboard/qml/Main.qml
+@@ -121,6 +121,9 @@ Kirigami.ApplicationWindow {
+         if (WivrnServer.serverStatus == WivrnServer.Stopped)
+             WivrnServer.start_server();
+ 
++        if (Updater.supported)
++            Updater.check(true);
++
+         if (DashboardSettings.last_run_version != ApkInstaller.currentVersion) {
+             DashboardSettings.last_run_version = ApkInstaller.currentVersion;
+         }
+@@ -204,6 +207,28 @@ Kirigami.ApplicationWindow {
+                         visible: VulkanInfo.driverId == "AmdProprietary" || VulkanInfo.driverId == "AmdOpenSource"
+                     }
+ 
++                    Kirigami.InlineMessage {
++                        Layout.fillWidth: true
++                        text: Updater.message
++                        type: Updater.state == Updater.Error ? Kirigami.MessageType.Error : Kirigami.MessageType.Information
++                        showCloseButton: Updater.state != Updater.Downloading && Updater.state != Updater.Installing
++                        visible: Updater.state != Updater.Idle && Updater.state != Updater.Checking
++                        actions: [
++                            Kirigami.Action {
++                                text: i18n("Update and restart")
++                                icon.name: "update-none"
++                                visible: Updater.state == Updater.Available
++                                onTriggered: Updater.install()
++                            },
++                            Kirigami.Action {
++                                text: i18n("Release notes")
++                                icon.name: "internet-services"
++                                visible: Updater.state == Updater.Available || Updater.state == Updater.Error
++                                onTriggered: Qt.openUrlExternally(Updater.releasePage)
++                            }
++                        ]
++                    }
++
+                     Kirigami.InlineMessage {
+                         Layout.fillWidth: true
+                         text: i18n("No OpenVR compatibility detected, Steam games won't be able to load VR.\nInstall xrizer or OpenComposite.")
+@@ -447,6 +472,13 @@ Kirigami.ApplicationWindow {
+                 onTriggered: root.pageStack.push(Qt.createComponent("SettingsPage.qml").createObject())
+                 enabled: root.server_started
+             },
++            Kirigami.Action {
++                text: i18n("Check for updates")
++                icon.name: "update-none"
++                visible: Updater.supported
++                enabled: Updater.state != Updater.Checking && Updater.state != Updater.Downloading && Updater.state != Updater.Installing
++                onTriggered: Updater.check()
++            },
+             Kirigami.Action {
+                 text: i18n("About")
+                 icon.name: "help-about"
+diff --git a/dashboard/updater.cpp b/dashboard/updater.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..17aceb1ee70450592d219102810a94806e59e852
+--- /dev/null
++++ b/dashboard/updater.cpp
+@@ -0,0 +1,263 @@
++/*
++ * WiVRn VR streaming
++ * Copyright (C) 2026  wivrn-macos contributors
++ *
++ * This program is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
++ */
++
++#include "updater.h"
++
++#include <KLocalizedString>
++#include <QCoreApplication>
++#include <QDir>
++#include <QFile>
++#include <QFileInfo>
++#include <QJsonArray>
++#include <QJsonDocument>
++#include <QJsonObject>
++#include <QNetworkReply>
++#include <QProcess>
++#include <QStringList>
++#include <algorithm>
++#include <memory>
++
++#ifdef __APPLE__
++#include <CoreFoundation/CoreFoundation.h>
++#include <unistd.h>
++#endif
++
++namespace
++{
++QString repo()
++{
++	if (QString r = qEnvironmentVariable("WIVRN_UPDATE_REPO"); not r.isEmpty())
++		return r;
++	return "orchardxr/wivrn-macos";
++}
++
++// WiVRn.app, if the dashboard runs from one
++QString app_bundle()
++{
++	QDir dir(QCoreApplication::applicationDirPath());
++	if (not dir.cdUp() or not dir.cdUp() or not dir.absolutePath().endsWith(".app"))
++		return {};
++	return dir.absolutePath();
++}
++
++#ifdef __APPLE__
++QString cf_string(CFTypeRef v)
++{
++	if (not v or CFGetTypeID(v) != CFStringGetTypeID())
++		return {};
++	return QString::fromCFString(static_cast<CFStringRef>(v));
++}
++
++struct bundle_info
++{
++	QString id;
++	QString version;
++};
++
++bundle_info read_bundle(const QString & path)
++{
++	bundle_info info;
++	CFURLRef url = CFURLCreateFromFileSystemRepresentation(nullptr, reinterpret_cast<const UInt8 *>(path.toUtf8().constData()), path.toUtf8().size(), true);
++	if (not url)
++		return info;
++	if (CFBundleRef b = CFBundleCreate(nullptr, url))
++	{
++		info.id = cf_string(CFBundleGetIdentifier(b));
++		info.version = cf_string(CFBundleGetValueForInfoDictionaryKey(b, CFSTR("CFBundleShortVersionString")));
++		CFRelease(b);
++	}
++	CFRelease(url);
++	return info;
++}
++
++bundle_info main_bundle()
++{
++	bundle_info info;
++	if (CFBundleRef b = CFBundleGetMainBundle())
++	{
++		info.id = cf_string(CFBundleGetIdentifier(b));
++		info.version = cf_string(CFBundleGetValueForInfoDictionaryKey(b, CFSTR("CFBundleShortVersionString")));
++	}
++	return info;
++}
++#endif
++} // namespace
++
++updater::updater(QObject * parent) :
++        QObject(parent)
++{
++}
++
++bool updater::supported() const
++{
++#ifdef __APPLE__
++	return not app_bundle().isEmpty() and not main_bundle().id.isEmpty();
++#else
++	return false;
++#endif
++}
++
++QString updater::currentVersion() const
++{
++#ifdef __APPLE__
++	if (QString v = main_bundle().version; not v.isEmpty())
++		return v;
++#endif
++	return "0";
++}
++
++bool updater::is_newer(const QString & a, const QString & b)
++{
++	auto x = a.split('.'), y = b.split('.');
++	for (qsizetype i = 0; i < std::max(x.size(), y.size()); ++i)
++	{
++		int l = i < x.size() ? x[i].toInt() : 0;
++		int r = i < y.size() ? y[i].toInt() : 0;
++		if (l != r)
++			return l > r;
++	}
++	return false;
++}
++
++void updater::set_state(State s, const QString & message)
++{
++	// The check at startup only speaks up when there is an update
++	if (m_quiet and (s == State::UpToDate or s == State::Error))
++		s = State::Idle;
++	m_state = s;
++	m_message = message;
++	Q_EMIT stateChanged();
++}
++
++void updater::check(bool quiet)
++{
++	if (not supported() or m_state == State::Checking or m_state == State::Downloading or m_state == State::Installing)
++		return;
++	m_quiet = quiet;
++	set_state(State::Checking, i18n("Checking for updates…"));
++
++	QNetworkRequest req(QUrl("https://api.github.com/repos/" + repo() + "/releases/latest"));
++	req.setRawHeader("Accept", "application/vnd.github+json");
++	req.setHeader(QNetworkRequest::UserAgentHeader, "WiVRn-dashboard/" + currentVersion());
++	auto reply = nam.get(req);
++	connect(reply, &QNetworkReply::finished, this, [this, reply]() {
++		reply->deleteLater();
++		int code = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
++		if (code == 404)
++			return set_state(State::UpToDate, i18n("No release published yet"));
++		if (reply->error() != QNetworkReply::NoError or code != 200)
++			return set_state(State::Error, i18n("Update check failed: %1", reply->errorString()));
++
++		auto r = QJsonDocument::fromJson(reply->readAll()).object();
++		if (r["draft"].toBool() or r["prerelease"].toBool())
++			return set_state(State::UpToDate, i18n("WiVRn %1 is up to date", currentVersion()));
++		QString tag = r["tag_name"].toString();
++		m_latest = tag.startsWith('v') ? tag.mid(1) : tag;
++		m_page = QUrl(r["html_url"].toString());
++		m_zip.clear();
++		for (const auto & a: r["assets"].toArray())
++		{
++			auto name = a.toObject()["name"].toString();
++			if (name.startsWith("WiVRn-") and name.endsWith(".zip"))
++				m_zip = QUrl(a.toObject()["browser_download_url"].toString());
++		}
++		if (m_zip.isEmpty() or not is_newer(m_latest, currentVersion()))
++			return set_state(State::UpToDate, i18n("WiVRn %1 is up to date", currentVersion()));
++		set_state(State::Available, i18n("WiVRn %1 is available (installed: %2)", m_latest, currentVersion()));
++	});
++}
++
++void updater::install()
++{
++#ifdef __APPLE__
++	if (m_state != State::Available)
++		return;
++	m_quiet = false;
++	QString installed = app_bundle();
++	if (not QFileInfo(QFileInfo(installed).absolutePath()).isWritable())
++		return set_state(State::Error, i18n("Cannot replace %1: its folder is not writable. Download the update from the release page.", installed));
++
++	QString dir = QDir::tempPath() + "/wivrn-update-" + m_latest;
++	QDir(dir).removeRecursively();
++	QDir().mkpath(dir);
++	auto file = std::make_shared<QFile>(dir + "/WiVRn.zip");
++	if (not file->open(QFile::WriteOnly))
++		return set_state(State::Error, i18n("Cannot write %1", file->fileName()));
++
++	set_state(State::Downloading, i18n("Downloading WiVRn %1…", m_latest));
++	QNetworkRequest req(m_zip);
++	req.setHeader(QNetworkRequest::UserAgentHeader, "WiVRn-dashboard/" + currentVersion());
++	auto reply = nam.get(req);
++	connect(reply, &QNetworkReply::readyRead, this, [reply, file]() { file->write(reply->readAll()); });
++	connect(reply, &QNetworkReply::downloadProgress, this, [this](qint64 got, qint64 total) {
++		if (total > 0)
++			set_state(State::Downloading, i18n("Downloading WiVRn %1… %2%", m_latest, got * 100 / total));
++	});
++	connect(reply, &QNetworkReply::finished, this, [this, reply, file]() {
++		reply->deleteLater();
++		file->write(reply->readAll());
++		file->close();
++		int code = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
++		if (reply->error() != QNetworkReply::NoError or code != 200)
++			return set_state(State::Error, i18n("Download failed: %1", reply->errorString()));
++		unpack(file->fileName());
++	});
++#endif
++}
++
++void updater::unpack(const QString & zip)
++{
++#ifdef __APPLE__
++	set_state(State::Installing, i18n("Checking WiVRn %1…", m_latest));
++	QString dir = QFileInfo(zip).absolutePath();
++	auto ditto = new QProcess(this);
++	connect(ditto, &QProcess::finished, this, [this, ditto, dir, zip](int status) {
++		ditto->deleteLater();
++		QFile::remove(zip);
++		if (status != 0)
++			return set_state(State::Error, i18n("Unpacking the update failed"));
++
++		QString app = dir + "/WiVRn.app";
++		auto info = read_bundle(app);
++		if (info.id != main_bundle().id or info.version != m_latest)
++			return set_state(State::Error, i18n("The release has no matching WiVRn.app (found %1 %2)", info.id, info.version));
++
++		auto codesign = new QProcess(this);
++		connect(codesign, &QProcess::finished, this, [this, codesign, app](int status) {
++			codesign->deleteLater();
++			if (status != 0)
++				return set_state(State::Error, i18n("Signature check failed: %1", QString::fromUtf8(codesign->readAllStandardError()).trimmed()));
++
++			// After we exit: swap the bundles (restoring the old one on failure) and open the result
++			const char * script = R"(while kill -0 "$1" 2>/dev/null; do sleep 0.2; done
++old="$2.old-update"
++rm -rf "$old"
++if mv "$2" "$old"; then
++	if mv "$3" "$2"; then rm -rf "$old"; else mv "$old" "$2"; fi
++fi
++xattr -dr com.apple.quarantine "$2" 2>/dev/null
++open "$2")";
++			if (not QProcess::startDetached("/bin/sh", {"-c", script, "sh", QString::number(getpid()), app_bundle(), app}))
++				return set_state(State::Error, i18n("Cannot start the installer"));
++			QCoreApplication::quit();
++		});
++		codesign->start("/usr/bin/codesign", {"--verify", "--deep", "--strict", app});
++	});
++	ditto->start("/usr/bin/ditto", {"-x", "-k", zip, dir});
++#endif
++}
+diff --git a/dashboard/updater.h b/dashboard/updater.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..42ae9127d9e9a7fce8635a618614e4a757e2b462
+--- /dev/null
++++ b/dashboard/updater.h
+@@ -0,0 +1,94 @@
++/*
++ * WiVRn VR streaming
++ * Copyright (C) 2026  wivrn-macos contributors
++ *
++ * This program is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
++ */
++
++#pragma once
++
++#include <QNetworkAccessManager>
++#include <QObject>
++#include <QString>
++#include <QUrl>
++#include <QtQml/qqmlregistration.h>
++
++// Self-update of WiVRn.app from the GitHub releases of orchardxr/wivrn-macos
++class updater : public QObject
++{
++	Q_OBJECT
++	QML_NAMED_ELEMENT(Updater)
++	QML_SINGLETON
++
++public:
++	enum class State
++	{
++		Idle,
++		Checking,
++		UpToDate,
++		Available,
++		Downloading,
++		Installing,
++		Error,
++	};
++	Q_ENUM(State)
++
++	Q_PROPERTY(bool supported READ supported CONSTANT)
++	Q_PROPERTY(State state READ state NOTIFY stateChanged)
++	Q_PROPERTY(QString message READ message NOTIFY stateChanged)
++	Q_PROPERTY(QString currentVersion READ currentVersion CONSTANT)
++	Q_PROPERTY(QString latestVersion READ latestVersion NOTIFY stateChanged)
++	Q_PROPERTY(QUrl releasePage READ releasePage NOTIFY stateChanged)
++
++	updater(QObject * parent = nullptr);
++
++	bool supported() const;
++	State state() const
++	{
++		return m_state;
++	}
++	QString message() const
++	{
++		return m_message;
++	}
++	QString currentVersion() const;
++	QString latestVersion() const
++	{
++		return m_latest;
++	}
++	QUrl releasePage() const
++	{
++		return m_page;
++	}
++
++	static bool is_newer(const QString & a, const QString & b);
++
++	Q_INVOKABLE void check(bool quiet = false);
++	Q_INVOKABLE void install();
++
++Q_SIGNALS:
++	void stateChanged();
++
++private:
++	void set_state(State s, const QString & message = {});
++	void unpack(const QString & zip);
++
++	QNetworkAccessManager nam;
++	State m_state = State::Idle;
++	QString m_message;
++	QString m_latest;
++	QUrl m_zip;
++	QUrl m_page;
++	bool m_quiet = false;
++};

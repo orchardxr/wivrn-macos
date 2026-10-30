@@ -16,3 +16,11 @@ brew "librsvg"
 brew "cli11"
 brew "libpng"
 brew "x264"
+
+# wivrn-dashboard (WiVRn.app); the other KDE frameworks come from scripts/build-dashboard-deps.sh
+brew "qt"
+brew "dbus"
+brew "extra-cmake-modules"
+brew "ki18n"
+brew "karchive"
+brew "gettext"

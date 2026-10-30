@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # Build everything into the install tree. Run scripts/patches.sh apply first.
-#   scripts/build.sh [step...]     steps: openxr-sdk server clients tests install (default: all, in this order)
+#   scripts/build.sh [step...]     default: all steps below, in this order
 #
 # openxr-sdk  native OpenXR loader + hello_xr (build/openxr-sdk), for the test programs
 # server      wivrn-server (build/wivrn), refreshing build/monado-snapshot from the staged third_party/monado
 # clients     x86_64 and arm64 libopenxr_wivrn (build/wivrn-client-{x86_64,arm64})
 # tests       build/tests/{xr_empty_frames,xr_metal,audio_tone}
 # install     scripts/install.sh: build/install (WIVRN_INSTALL_DIR)
+# dashboard-deps  scripts/build-dashboard-deps.sh: KDE frameworks Homebrew lacks, build/kde/prefix (skipped when built)
+# dashboard   scripts/build-dashboard.sh: build/wivrn-dashboard
+# app         scripts/build-app.sh: build/WiVRn.app
 # Logs: build/logs/
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -46,7 +49,7 @@ tests() {
 }
 
 steps=("$@")
-[[ ${#steps[@]} -gt 0 ]] || steps=(openxr-sdk server clients tests install)
+[[ ${#steps[@]} -gt 0 ]] || steps=(openxr-sdk server clients tests install dashboard-deps dashboard app)
 for s in "${steps[@]}"; do
 	case "$s" in
 		openxr-sdk) openxr_sdk ;;
@@ -56,6 +59,10 @@ for s in "${steps[@]}"; do
 			"$ROOT/scripts/build-wivrn.sh" --client-arm64 ;;
 		tests) tests ;;
 		install) "$ROOT/scripts/install.sh" ;;
+		dashboard-deps)
+			[[ -f "$ROOT/build/kde/prefix/lib/cmake/QCoro6/QCoro6Config.cmake" ]] || "$ROOT/scripts/build-dashboard-deps.sh" ;;
+		dashboard) "$ROOT/scripts/build-dashboard.sh" ;;
+		app) "$ROOT/scripts/build-app.sh" ;;
 		*) echo "unknown step $s" >&2; exit 2 ;;
 	esac
 done

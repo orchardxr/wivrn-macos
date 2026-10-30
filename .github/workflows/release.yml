@@ -20,13 +20,21 @@ jobs:
         with:
           name: wivrn-macos
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: WiVRn.app
+
+      # WiVRn.app's self-update takes the release's WiVRn-<version>.zip and compares <version> with the tag.
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
-          zip="wivrn-macos-$TAG.zip"
-          mv wivrn-macos.zip "$zip"
+          version="$(cat VERSION)"
+          [[ "v$version" == "$TAG" ]] || { echo "tag $TAG does not match VERSION $version" >&2; exit 1; }
+          mv WiVRn.zip "WiVRn-$version.zip"
+          mv wivrn-macos.zip "wivrn-macos-$version.zip"
           notes="docs/releases/$TAG.md"
           if [[ -f "$notes" ]]; then args=(--notes-file "$notes"); else args=(--generate-notes); fi
-          gh release create "$TAG" "$zip" --verify-tag --title "wivrn-macos $TAG" "${args[@]}"
+          gh release create "$TAG" "WiVRn-$version.zip" "wivrn-macos-$version.zip" --verify-tag \
+            --title "WiVRn for macOS $version" "${args[@]}"

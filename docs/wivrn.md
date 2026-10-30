@@ -57,8 +57,9 @@ scripts/run-wivrn.sh [--pairing] [--no-encrypt]      # log: build/logs/wivrn-ser
   (bundled MoltenVK); apps use `share/openxr/1/openxr_wivrn.json` there.
 - Discovery: Bonjour `_wivrn._tcp` under the computer name, TXT `protocol`/`version`/`cookie`. Check with
   `dns-sd -B _wivrn._tcp` and `dns-sd -L <name> _wivrn._tcp`. TCP/UDP port 9757.
-- **Pairing:** with no known headset, or with `--pairing`, the PIN is printed on the terminal. There is no
-  wivrnctl/D-Bus. Keys are stored in `~/.config/wivrn/`.
+- **Pairing:** with no known headset, or with `--pairing`, the PIN is printed on the terminal. Keys are stored in
+  `~/.config/wivrn/`. With `DBUS_SESSION_BUS_ADDRESS` set (the dashboard's private bus, patch 0012) the server also
+  exports `io.github.wivrn.Server` there, so wivrn-dashboard shows the PIN, status and settings.
 - Start the client from the Mac without touching the headset; the PIN goes in the URI's password field:
   ```sh
   adb shell am start -a android.intent.action.VIEW -d "wivrn://:PIN@<mac address>:9757" -n org.meumeu.wivrn/.MainActivity
@@ -71,7 +72,7 @@ scripts/run-wivrn.sh [--pairing] [--no-encrypt]      # log: build/logs/wivrn-ser
   `build/tests/xr_empty_frames [s] [--swapchain]` is a minimal session that submits frames with no layers (or one
   untouched swapchain).
 - The server and the apps must run in the same login session, because of Monado's Mach bootstrap service
-  (`org.macvr.monado.<uid>.comp_ipc.<hash>`).
+  (`org.orchardxr.wivrn.<uid>.comp_ipc.<hash>`).
 - Ctrl-C / SIGTERM quits.
 - Env:
   - `WIVRN_VT_LOG_TIMING=1`: per-frame encode log. Without it, a summary per stream is logged every 10 s.
@@ -358,6 +359,41 @@ Ethernet, Quest on 5 GHz Wi-Fi):
   a lower bitrate (client setting; 200 Mbit/s total now) shortens network and decode, and a cleaner/less busy Wi-Fi
   channel shrinks the tail.
 
+**0012-macos-dashboard** (2026-10-30)
+
+WiVRn's own Qt 6 / Kirigami dashboard on macOS (build: [development.md](development.md#wivrnapp)).
+- Server: with `DBUS_SESSION_BUS_ADDRESS` set it connects (`create_dbus_connection`, GDBus over `unix:path=`, EXTERNAL
+  auth works on macOS) and owns `io.github.wivrn.Server`; without it, as before (skeleton as state store only).
+- Dashboard `main.cpp`: no session bus on macOS, so unless `DBUS_SESSION_BUS_ADDRESS` is set it uses
+  `$DARWIN_USER_TEMP_DIR/wivrn/dbus-session`: reuses a live bus there, else starts `dbus-daemon` (next to the
+  executable, else Homebrew's) with a generated minimal session config, exports the address (the server it starts
+  inherits it) and stops the daemon on exit. Chosen over a Homebrew launchd agent: self-contained, no plist or install
+  step, gone with the app. `VK_DRIVER_FILES` = the bundle's `Resources/vulkan/icd.d/MoltenVK_icd.json` else
+  Homebrew's. Fusion QtQuick style (no org.kde.desktop; the native macOS style draws Kirigami badly).
+- `WIVRN_SERVER` overrides the server path (dev runs); default is next to the dashboard, as on Linux.
+- avahi.cpp: mDNSResponder (`DNSServiceCreateConnection`) instead of the Avahi D-Bus check; firewall: none (the
+  application firewall asks itself); hostname: `SCDynamicStoreCopyComputerName` (the Bonjour name); Vulkan info with
+  portability enumeration; no "install xrizer/OpenComposite" warning on macOS.
+- CMake: no QQC2DesktopStyle on Apple, `Qt6::DBus` found explicitly, `nlohmann_json` linked.
+
+**0013-macos-relocatable-runtime-manifest** (2026-10-30)
+
+The active-runtime management looked for the manifest under the configured install prefix only, and threw (at headset
+connection) when that directory didn't exist, e.g. in a moved install tree or WiVRn.app. On Apple it now looks next
+to the executable first: `Contents/Resources/openxr/1` (WiVRn.app) or `<prefix>/share/openxr/1` (install tree,
+`libexec/wivrn/wivrn-server`), and returns nothing instead of throwing when neither exists.
+
+**0014-macos-dashboard-updater** (2026-10-30)
+
+Self-update of WiVRn.app (`dashboard/updater.{h,cpp}`, QML singleton `Updater`), like VarboR's `Updater.swift`: GitHub
+API `releases/latest` of orchardxr/wivrn-macos (`WIVRN_UPDATE_REPO` overrides), skip drafts/prereleases, compare the
+tag (`v` stripped) with `CFBundleShortVersionString`, take the `WiVRn-*.zip` asset, download it to
+`$TMPDIR/wivrn-update-<version>`, `ditto -x -k`, check the new bundle's identifier and version against the running one
+and `codesign --verify --deep --strict`, then a detached `/bin/sh` waits for the dashboard to exit, swaps the bundles
+(restoring the old one on failure), clears quarantine and opens the new app. A quiet check runs at startup (shown only
+when an update exists); "Check for updates" in the drawer reports the result; the main page shows "Update and
+restart" and the release notes link. Needs a writable parent folder (else it points at the release page).
+
 ## Step 7 findings (2026-10-24)
 
 - **Startup stall: fixed** (root cause in docs/encoder.md). It was libmvt's prewarm PTS (`CLOCK_UPTIME_RAW`) against
@@ -430,7 +466,9 @@ in ms, CPU = `ps` average of the 10-s samples):
   (`mvt_test --frames 2300`), so it is not WiVRn's doing. The Quest's decoder is fine (no IDR requests in
   5-min soaks). Probably the long-term reference / POC LSB wrap of VT's infinite GOP; compare dumps below
   frame 2000.
-- Microphone, input forwarding (uinput), wivrnctl/dashboard and the systemd/flatpak paths are off.
+- Microphone, input forwarding (uinput), wivrnctl and the systemd/flatpak paths are off. The dashboard runs
+  (WiVRn.app, patch 0012), but the headset pairing/streaming through a dashboard-started server and its USB/adb and
+  APK install pages are untried. It still shows Linux bits: Steam launch options (`PRESSURE_VESSEL_...`).
 - The active-runtime management assumes XDG paths and the configured install prefix (`WIVRN_INSTALL_PREFIX`).
   `run-wivrn.sh` disables it; the install tree's `bin/wivrn-server` disables it when the tree was moved from its
   prefix (`share/wivrn/build-info`). A patch could resolve the manifest relative to the executable instead.

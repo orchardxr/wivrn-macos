@@ -27,34 +27,35 @@ find WiVRn through its runtime manifest.
 
 ## Install
 
-Download `wivrn-macos-<version>.zip` from [Releases](https://github.com/orchardxr/wivrn-macos/releases) and unzip
-it wherever you like, for example to `~/Applications/wivrn-macos`. It is ad-hoc signed; if macOS blocks it, run
-`xattr -dr com.apple.quarantine ~/Applications/wivrn-macos`.
+Download `WiVRn-<version>.zip` from [Releases](https://github.com/orchardxr/wivrn-macos/releases), unzip it and drag
+`WiVRn.app` to `/Applications`. It is ad-hoc signed (not notarized): the first time, right-click it and choose Open,
+or run `xattr -dr com.apple.quarantine /Applications/WiVRn.app`. WiVRn.app updates itself from the releases ("Check for
+updates" in its menu; it also checks at startup).
 
-WiVRn.app, with the WiVRn dashboard, is planned. Once it exists, installing will be: drag it to `/Applications`.
+Without the dashboard: `wivrn-macos-<version>.zip` from the same release has the server and the runtime only, as a
+folder you can put anywhere (`bin/wivrn-server`).
 
 ## Usage
 
-1. Start the server: `~/Applications/wivrn-macos/bin/wivrn-server`. It announces itself on the network (Bonjour).
-2. Open WiVRn on the headset and pick your Mac. The first time, enter the PIN that the server prints (to pair
-   another headset later, start the server with `--pairing`).
-3. Start the OpenXR app with the runtime selected:
-   ```sh
-   XR_RUNTIME_JSON=~/Applications/wivrn-macos/share/openxr/1/openxr_wivrn.json ./your-openxr-app
-   ```
-   Start the app from the same login session as the server (not over ssh).
-4. Ctrl-C stops the server.
+1. Open WiVRn.app. It starts the server, which announces itself on the network (Bonjour).
+2. Open WiVRn on the headset and pick your Mac. The first time, enter the PIN that WiVRn.app shows (Headsets → pair
+   for another headset later).
+3. Start your OpenXR app. Once a headset is connected, WiVRn sets itself as the active OpenXR runtime, as on Linux;
+   or select it for one app with
+   `XR_RUNTIME_JSON=/Applications/WiVRn.app/Contents/Resources/openxr/1/openxr_wivrn.json`.
+   Start apps from the same login session as WiVRn (not over ssh).
+4. Quitting WiVRn.app stops the server.
 
-On first use with audio, macOS asks to let the terminal record system audio (Privacy & Security, Screen & System
-Audio Recording). Without it the headset gets silence. Settings, environment variables and logs are described in
+On first use with audio, macOS asks to let WiVRn record system audio (Privacy & Security, Screen & System Audio
+Recording). Without it the headset gets silence. Settings, environment variables and logs are described in
 [docs/wivrn.md](docs/wivrn.md).
 
 ## Limitations
 
-- No dashboard or `wivrnctl` yet: pairing and settings go through the terminal and `~/.config/wivrn/config.json`.
+- The dashboard is new on macOS: its USB (adb) connection and headset app install pages are untested, and it still
+  shows some Linux-only hints (Steam launch options). No `wivrnctl`.
+- Not notarized: macOS asks for confirmation on first launch.
 - No microphone from the headset, no input forwarding.
-- The server only sets itself as the system's active OpenXR runtime when run from the folder it was built for. A
-  release zip doesn't do that, so set `XR_RUNTIME_JSON` as above.
 - Only HEVC/H.264 through VideoToolbox; no AV1 encoding.
 - Native macOS app support is new and barely tested.
 
@@ -64,11 +65,12 @@ Audio Recording). Without it the headset gets silence. Settings, environment var
 - The patch series follow their upstream's license because they modify that code ([patches/LICENSE.md](patches/LICENSE.md)):
   `patches/wivrn/` and `patches/diag/` are GPL-3.0, `patches/monado/` is BSL-1.0, `patches/openxr-sdk/` is Apache-2.0.
 - `third_party/` submodules keep their own licenses.
-- A release is the WiVRn server, so GPL-3.0 as a whole; it ships the license texts in `share/doc/wivrn-macos/`. The
-  bundled Homebrew libraries and MoltenVK keep their licenses.
+- A release is WiVRn, so GPL-3.0 as a whole; the install tree ships the license texts in `share/doc/wivrn-macos/`.
+  WiVRn.app bundles Qt (LGPL-3.0), KDE Frameworks (LGPL), D-Bus (AFL-2.1/GPL-2.0), Homebrew libraries and MoltenVK,
+  each under its own license.
 
 ## Development
 
 Building from source, the repository layout, the install tree, the patch workflow, CI and releases:
-[docs/development.md](docs/development.md). This code came from orchardxr/varbor (formerly MacVR), where the port was
+[docs/development.md](docs/development.md). This code came from orchardxr/varbor, where the port was
 developed; this repository has a fresh history.
