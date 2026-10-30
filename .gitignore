@@ -1,0 +1,6 @@
+build/
+tests/encoder/build/
+tests/encoder/out/
+.DS_Store
+__pycache__/
+*.pyc
