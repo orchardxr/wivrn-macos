@@ -1,0 +1,145 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+  workflow_call:
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  VULKAN_SDK_VERSION: 1.4.304.0
+  VULKAN_SDK_SHA256: d8909362c8cd6a61a33f8ab21240c6d3f38c3818f443f52939a9ac198ad0e539
+  HOMEBREW_NO_AUTO_UPDATE: "1"
+  HOMEBREW_NO_INSTALL_CLEANUP: "1"
+  # Every CMake build compiles through ccache. It keys on contents, so the fresh mtimes of a checkout and
+  # patches.sh apply still hit.
+  CMAKE_C_COMPILER_LAUNCHER: ccache
+  CMAKE_CXX_COMPILER_LAUNCHER: ccache
+  CMAKE_OBJC_COMPILER_LAUNCHER: ccache
+  CMAKE_OBJCXX_COMPILER_LAUNCHER: ccache
+  CCACHE_DIR: /Users/runner/.ccache
+  CCACHE_BASEDIR: ${{ github.workspace }}
+  CCACHE_COMPILERCHECK: content
+  CCACHE_SLOPPINESS: include_file_mtime,include_file_ctime,time_macros,pch_defines
+  CCACHE_MAXSIZE: 2G
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Select the newest Xcode
+        run: |
+          xcode="$(find /Applications -maxdepth 1 -name 'Xcode_*.app' | sort -V | tail -1)"
+          sudo xcode-select -s "$xcode/Contents/Developer"
+          xcodebuild -version
+          echo "macOS SDK $(xcrun --show-sdk-version)"
+
+      - name: Cache Homebrew downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/Homebrew/downloads
+          key: brew-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Brewfile') }}
+          restore-keys: brew-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Homebrew dependencies
+        run: |
+          brew bundle --file=Brewfile --no-upgrade
+          brew install ccache
+
+      # Installs the universal loader, headers and glslc into /usr/local (the x86_64 runtime slice links the x86_64
+      # slice). The installer's component names are LunarG's.
+      - name: Cache Vulkan SDK download
+        uses: actions/cache@v4
+        with:
+          path: ~/vulkansdk-dl
+          key: vulkansdk-${{ env.VULKAN_SDK_VERSION }}
+      - name: Vulkan SDK
+        run: |
+          mkdir -p ~/vulkansdk-dl && cd ~/vulkansdk-dl
+          zip="vulkansdk-macos-$VULKAN_SDK_VERSION.zip"
+          [[ -f "$zip" ]] || curl -fsSLo "$zip" "https://sdk.lunarg.com/sdk/download/$VULKAN_SDK_VERSION/mac/$zip"
+          echo "$VULKAN_SDK_SHA256  $zip" | shasum -a 256 -c -
+          rm -rf InstallVulkan.app && unzip -q "$zip"
+          sudo ./InstallVulkan.app/Contents/MacOS/InstallVulkan --root "$HOME/VulkanSDK/$VULKAN_SDK_VERSION" \
+            --accept-licenses --default-answer --confirm-command install com.lunarg.vulkan.core com.lunarg.vulkan.usr
+          lipo -archs /usr/local/lib/libvulkan.dylib
+          ls /usr/local/include/vulkan/vulkan_core.h /usr/local/bin/glslc
+
+      - name: Apply patches
+        run: |
+          scripts/patches.sh apply
+          scripts/patches.sh status
+
+      # A new entry every run, restored from the newest one.
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: /Users/runner/.ccache
+          key: ccache-${{ runner.arch }}-${{ github.run_id }}
+          restore-keys: ccache-${{ runner.arch }}-
+      - name: ccache stats reset
+        run: ccache --zero-stats
+
+      - name: OpenXR SDK (loader and hello_xr for the test programs)
+        run: scripts/build.sh openxr-sdk
+
+      - name: WiVRn server
+        run: scripts/build.sh server
+
+      # x86_64 slice: Monado's client only needs the universal Vulkan SDK in /usr/local and Eigen's headers, so no
+      # x86_64 Homebrew is needed.
+      - name: OpenXR runtime (x86_64 and arm64 IPC clients)
+        run: scripts/build.sh clients
+
+      - name: Test programs
+        run: scripts/build.sh tests
+
+      - name: Install tree
+        run: scripts/build.sh install
+
+      - name: Server starts
+        run: |
+          t="$RUNNER_TEMP/wivrn-smoke"
+          mkdir -p "$t/rt" "$t/cfg/wivrn"
+          echo '{"port": 9767}' > "$t/cfg/wivrn/config.json"
+          XDG_RUNTIME_DIR="$t/rt" XDG_CONFIG_HOME="$t/cfg" build/install/bin/wivrn-server --no-publish-service \
+            > "$t/server.log" 2>&1 &
+          pid=$!
+          for _ in $(seq 20); do [[ -S "$t/rt/wivrn/comp_ipc" ]] && break; sleep 1; done
+          cat "$t/server.log"
+          [[ -S "$t/rt/wivrn/comp_ipc" ]] || { echo "no IPC socket" >&2; exit 1; }
+          kill -TERM "$pid" && wait "$pid"
+
+      - name: ccache stats
+        if: always()
+        run: ccache --show-stats
+
+      - name: Build logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: build/logs
+
+      - name: Zip the install tree
+        run: |
+          rm -rf build/dist && mkdir -p build/dist
+          ditto build/install build/dist/wivrn-macos
+          ditto -c -k --keepParent build/dist/wivrn-macos build/wivrn-macos.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wivrn-macos
+          path: build/wivrn-macos.zip
