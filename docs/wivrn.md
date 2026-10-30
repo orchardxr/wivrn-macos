@@ -392,7 +392,9 @@ tag (`v` stripped) with `CFBundleShortVersionString`, take the `WiVRn-*.zip` ass
 and `codesign --verify --deep --strict`, then a detached `/bin/sh` waits for the dashboard to exit, swaps the bundles
 (restoring the old one on failure), clears quarantine and opens the new app. A quiet check runs at startup (shown only
 when an update exists); "Check for updates" in the drawer reports the result; the main page shows "Update and
-restart" and the release notes link. Needs a writable parent folder (else it points at the release page).
+restart" and the release notes link. Needs a writable parent folder (else it points at the release page). Each
+result goes to the dashboard log: `update: checked, <version> is current`, `update: <version> available`, or
+`update: <error>`.
 
 **0015-macos-cloexec** (2026-10-30)
 
@@ -406,6 +408,15 @@ session inherited the headset's TCP connection. Now both sockets are close-on-ex
 The dashboard writes the server's output to `~/Library/Logs/WiVRn/wivrn-server.log` and its own messages to
 `wivrn-dashboard.log` there (still also on stderr), each rotated at start to `.1.log` ... `.5.log`. "Open server logs"
 opens that folder; Console.app shows it under Log Reports.
+
+**0017-macos-dashboard-quit-signals** (2026-10-31)
+
+SIGTERM, SIGINT and SIGHUP killed the dashboard without running its destructors, which left its wivrn-server and
+private dbus-daemon running with PPID 1. They now reach the event loop through a socketpair and a `QSocketNotifier`
+and quit it, so the server is stopped, then the bus, as on a normal quit. For a crash or SIGKILL, the dashboard forks
+a watchdog first thing in `main` (still single-threaded) that holds a pipe's read end; the dashboard sends it the pids
+of the bus and the servers it starts (and those that exit). At EOF it SIGTERMs them, newest first, and SIGKILLs any
+still alive after 5 s. `WIVRN_DBUS_DIR` overrides the bus dir (`$DARWIN_USER_TEMP_DIR/wivrn`) for side-by-side tests.
 
 ## Step 7 findings (2026-10-24)
 

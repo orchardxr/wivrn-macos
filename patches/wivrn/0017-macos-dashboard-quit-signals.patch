@@ -1,0 +1,246 @@
+From: wivrn-macos
+Subject: [PATCH] macos-dashboard-quit-signals
+
+---
+ dashboard/dashboard_utils.cpp | 94 +++++++++++++++++++++++++++++++++++++++++++
+ dashboard/dashboard_utils.h   |  6 +++
+ dashboard/main.cpp            | 46 ++++++++++++++++++++-
+ dashboard/wivrn_server.cpp    |  9 +++++
+ 4 files changed, 154 insertions(+), 1 deletion(-)
+
+diff --git a/dashboard/dashboard_utils.cpp b/dashboard/dashboard_utils.cpp
+index 5608da8e1b1328e170d266749a9c198af7e06d9e..2ff51cf39934608827412672bafe486bd021d31c 100644
+--- a/dashboard/dashboard_utils.cpp
++++ b/dashboard/dashboard_utils.cpp
+@@ -50,4 +50,98 @@ QString rotate_log(const QString & name, int keep)
+ 	QFile::rename(base + ".log", base + ".1.log");
+ 	return base + ".log";
+ }
++
++#include <algorithm>
++#include <cerrno>
++#include <csignal>
++#include <cstdint>
++#include <fcntl.h>
++#include <unistd.h>
++
++static int watchdog_fd = -1;
++
++[[noreturn]] static void run_watchdog(int fd)
++{
++	pid_t pids[64];
++	int n = 0;
++	for (;;)
++	{
++		int32_t msg;
++		ssize_t r = read(fd, &msg, sizeof(msg));
++		if (r < 0 and errno == EINTR)
++			continue;
++		if (r != sizeof(msg))
++			break;
++		if (msg > 0 and n < 64)
++			pids[n++] = msg;
++		for (int i = 0; msg < 0 and i < n; ++i)
++		{
++			if (pids[i] == -msg)
++			{
++				std::copy(pids + i + 1, pids + n, pids + i);
++				--n;
++				break;
++			}
++		}
++	}
++	for (int i = n - 1; i >= 0; --i)
++	{
++		if (kill(pids[i], SIGTERM) != 0)
++			continue;
++		for (int t = 0; t < 50 and kill(pids[i], 0) == 0; ++t)
++			usleep(100'000);
++		kill(pids[i], SIGKILL);
++	}
++	_exit(0);
++}
++
++void start_child_watchdog()
++{
++	int fds[2];
++	if (pipe(fds) != 0)
++		return;
++	pid_t pid = fork();
++	if (pid < 0)
++	{
++		close(fds[0]);
++		close(fds[1]);
++		return;
++	}
++	if (pid == 0)
++	{
++		close(fds[1]);
++		for (int s: {SIGINT, SIGTERM, SIGHUP})
++			signal(s, SIG_IGN);
++		if (int null = open("/dev/null", O_RDWR); null >= 0)
++		{
++			for (int i = 0; i < 3; ++i)
++				dup2(null, i);
++			if (null > 2)
++				close(null);
++		}
++		run_watchdog(fds[0]);
++	}
++	close(fds[0]);
++	fcntl(fds[1], F_SETFD, FD_CLOEXEC);
++	fcntl(fds[1], F_SETNOSIGPIPE, 1);
++	watchdog_fd = fds[1];
++}
++
++static void send_watchdog(int32_t msg)
++{
++	if (watchdog_fd >= 0)
++		(void)!write(watchdog_fd, &msg, sizeof(msg));
++}
++
++void watch_child(qint64 pid)
++{
++	if (pid > 0)
++		send_watchdog(pid);
++}
++
++void unwatch_child(qint64 pid)
++{
++	if (pid > 0)
++		send_watchdog(-pid);
++}
+ #endif
+diff --git a/dashboard/dashboard_utils.h b/dashboard/dashboard_utils.h
+index 741c40dee880b6fb3d1d016bee7647bd549f1ac6..9ecfa6e37f47272fc06b2395ee0135ba6c46d325 100644
+--- a/dashboard/dashboard_utils.h
++++ b/dashboard/dashboard_utils.h
+@@ -27,4 +27,10 @@ QString find_executable(const QString & name);
+ QString log_dir();
+ // Shifts <log_dir>/<name>.log to <name>.1.log ... keeping `keep` old ones, returns the path of <name>.log
+ QString rotate_log(const QString & name, int keep = 5);
++
++// A process forked at startup that stops the watched children (newest first) once the dashboard is gone, even if
++// it was killed. Call first in main, while the process has a single thread.
++void start_child_watchdog();
++void watch_child(qint64 pid);
++void unwatch_child(qint64 pid);
+ #endif
+diff --git a/dashboard/main.cpp b/dashboard/main.cpp
+index f8609741cdcbb493d010b061951a4cf743a06e31..212ccc2ab8d76453c4e1b34f13cc9dcaa672932d 100644
+--- a/dashboard/main.cpp
++++ b/dashboard/main.cpp
+@@ -20,7 +20,11 @@
+ #include <QFile>
+ #include <QProcess>
+ #include <QDateTime>
++#include <QSocketNotifier>
+ #include <QStandardPaths>
++#include <csignal>
++#include <fcntl.h>
++#include <sys/socket.h>
+ #include <unistd.h>
+ 
+ #include "dashboard_utils.h"
+@@ -30,9 +34,11 @@ struct stop_process
+ {
+ 	void operator()(QProcess * p)
+ 	{
++		qint64 pid = p->processId();
+ 		p->terminate();
+ 		p->waitForFinished(1000);
+ 		delete p;
++		unwatch_child(pid);
+ 	}
+ };
+ 
+@@ -42,7 +48,9 @@ static std::unique_ptr<QProcess, stop_process> start_session_bus()
+ 		return {};
+ 
+ 	char tmp[PATH_MAX];
+-	QString dir = (confstr(_CS_DARWIN_USER_TEMP_DIR, tmp, sizeof(tmp)) > 0 ? QString(tmp) : QDir::tempPath() + "/") + "wivrn";
++	QString dir = qEnvironmentVariable("WIVRN_DBUS_DIR");
++	if (dir.isEmpty())
++		dir = (confstr(_CS_DARWIN_USER_TEMP_DIR, tmp, sizeof(tmp)) > 0 ? QString(tmp) : QDir::tempPath() + "/") + "wivrn";
+ 	QDir().mkpath(dir);
+ 	QString socket = dir + "/dbus-session";
+ 	QString address = "unix:path=" + socket;
+@@ -83,9 +91,41 @@ static std::unique_ptr<QProcess, stop_process> start_session_bus()
+ 	bus->start(daemon, {"--nofork", "--print-address", "--config-file=" + config, "--address=" + address});
+ 	if (not bus->waitForReadyRead(5000))
+ 		qWarning() << "Failed to start" << daemon << bus->errorString();
++	watch_child(bus->processId());
+ 	return bus;
+ }
+ 
++// SIGTERM, SIGINT, SIGHUP: leave the event loop so the server and the bus are stopped as on a normal quit
++static int quit_signal_fds[2] = {-1, -1};
++
++static void on_quit_signal(int sig)
++{
++	char c = sig;
++	(void)!write(quit_signal_fds[1], &c, 1);
++}
++
++static void handle_quit_signals(QObject * parent)
++{
++	if (socketpair(AF_UNIX, SOCK_STREAM, 0, quit_signal_fds) != 0)
++		return;
++	for (int fd: quit_signal_fds)
++		fcntl(fd, F_SETFD, FD_CLOEXEC);
++	fcntl(quit_signal_fds[1], F_SETFL, O_NONBLOCK);
++	auto notifier = new QSocketNotifier(quit_signal_fds[0], QSocketNotifier::Read, parent);
++	QObject::connect(notifier, &QSocketNotifier::activated, parent, [] {
++		char c = 0;
++		if (read(quit_signal_fds[0], &c, 1) == 1)
++			qInfo() << "Signal" << int(c) << "received, quitting";
++		QCoreApplication::exit(0);
++	});
++	struct sigaction sa{};
++	sa.sa_handler = on_quit_signal;
++	sigemptyset(&sa.sa_mask);
++	sa.sa_flags = SA_RESTART;
++	for (int s: {SIGTERM, SIGINT, SIGHUP})
++		sigaction(s, &sa, nullptr);
++}
++
+ // The dashboard's own messages: stderr as before, and ~/Library/Logs/WiVRn/wivrn-dashboard.log
+ static QFile * dashboard_log = nullptr;
+ static QtMessageHandler default_handler = nullptr;
+@@ -131,10 +171,14 @@ static void set_vulkan_driver()
+ 
+ int main(int argc, char * argv[])
+ {
++#ifdef __APPLE__
++	start_child_watchdog();
++#endif
+ 	KIconTheme::initTheme();
+ 	QApplication app(argc, argv);
+ #ifdef __APPLE__
+ 	start_dashboard_log();
++	handle_quit_signals(&app);
+ 	auto session_bus = start_session_bus();
+ 	set_vulkan_driver();
+ #endif
+diff --git a/dashboard/wivrn_server.cpp b/dashboard/wivrn_server.cpp
+index 162bba321c95269b07a0e6445c5fe47cf33b4147..9ae97151ef2a9b42da93e29c4e1e23c8e9d1a6cd 100644
+--- a/dashboard/wivrn_server.cpp
++++ b/dashboard/wivrn_server.cpp
+@@ -153,8 +153,17 @@ void wivrn_server::start_server()
+ 			server_log_file = get_server_log_file();
+ 
+ 			connect(server_process, &QProcess::readyReadStandardOutput, this, &wivrn_server::on_server_ready_read_standard_output);
++#ifdef __APPLE__
++			connect(server_process, &QProcess::started, this, [p = server_process]() {
++				p->setProperty("pid", p->processId());
++				watch_child(p->processId());
++			});
++#endif
+ 			connect(server_process, &QProcess::finished, this, [this, p = server_process]() {
+ 				p->deleteLater();
++#ifdef __APPLE__
++				unwatch_child(p->property("pid").toLongLong());
++#endif
+ 
+ 				if (server_process == p)
+ 				{

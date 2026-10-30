@@ -4,9 +4,9 @@ Subject: [PATCH] macos-dashboard-updater
 ---
  dashboard/CMakeLists.txt |   2 +
  dashboard/qml/Main.qml   |  32 ++++++
- dashboard/updater.cpp    | 263 +++++++++++++++++++++++++++++++++++++++++++++++
- dashboard/updater.h      |  94 +++++++++++++++++
- 4 files changed, 391 insertions(+)
+ dashboard/updater.cpp    | 271 +++++++++++++++++++++++++++++++++++++++++++++++
+ dashboard/updater.h      |  94 ++++++++++++++++
+ 4 files changed, 399 insertions(+)
 
 diff --git a/dashboard/CMakeLists.txt b/dashboard/CMakeLists.txt
 index dd9ca4bdf36199df33f8812ea7842f9425d16b6e..f34aacbef27760c30df268cad29e8457a06f02f4 100644
@@ -87,10 +87,10 @@ index 38774afd0422dca8f387320b13f6461e4ea6d51e..4307d4197b3bd740ea7947c8972eeca4
                  icon.name: "help-about"
 diff --git a/dashboard/updater.cpp b/dashboard/updater.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..17aceb1ee70450592d219102810a94806e59e852
+index 0000000000000000000000000000000000000000..a414cbca2edff2c6c2e0c9668334612d95a653fd
 --- /dev/null
 +++ b/dashboard/updater.cpp
-@@ -0,0 +1,263 @@
+@@ -0,0 +1,271 @@
 +/*
 + * WiVRn VR streaming
 + * Copyright (C) 2026  wivrn-macos contributors
@@ -113,6 +113,7 @@ index 0000000000000000000000000000000000000000..17aceb1ee70450592d219102810a9480
 +
 +#include <KLocalizedString>
 +#include <QCoreApplication>
++#include <QDebug>
 +#include <QDir>
 +#include <QFile>
 +#include <QFileInfo>
@@ -229,6 +230,13 @@ index 0000000000000000000000000000000000000000..17aceb1ee70450592d219102810a9480
 +
 +void updater::set_state(State s, const QString & message)
 +{
++	if (s == State::UpToDate)
++		qInfo().noquote() << "update: checked," << currentVersion() << "is current";
++	else if (s == State::Available)
++		qInfo().noquote() << "update:" << m_latest << "available";
++	else if (s == State::Error)
++		qWarning().noquote() << "update:" << message;
++
 +	// The check at startup only speaks up when there is an update
 +	if (m_quiet and (s == State::UpToDate or s == State::Error))
 +		s = State::Idle;

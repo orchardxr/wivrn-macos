@@ -79,8 +79,8 @@ run in the same login session as the server (Mach bootstrap service).
 
 ## WiVRn.app
 
-WiVRn's own Qt 6 / Kirigami dashboard (`third_party/wivrn/dashboard`, patches 0012 and 0014; what they change:
-[wivrn.md](wivrn.md)) with the server, a private `dbus-daemon` and the OpenXR runtime:
+WiVRn's own Qt 6 / Kirigami dashboard (`third_party/wivrn/dashboard`, patches 0012, 0014, 0016 and 0017; what they
+change: [wivrn.md](wivrn.md)) with the server, a private `dbus-daemon` and the OpenXR runtime:
 
 ```
 WiVRn.app/Contents/
@@ -100,7 +100,8 @@ WiVRn.app/Contents/
   look; Fusion instead).
 - `scripts/run-dashboard.sh [server args]` runs the dev build with `build/wivrn`'s server. Don't run it next to
   another wivrn-server (port 9757, the `comp_ipc` socket); for a side-by-side test use scratch `XDG_CONFIG_HOME`
-  (with `wivrn/config.json` `{"port": 9758}`) and `XDG_RUNTIME_DIR`, and `--no-publish-service`.
+  (with `wivrn/config.json` `{"port": 9758}`), `XDG_RUNTIME_DIR` and `WIVRN_DBUS_DIR` (the dashboard's private bus), and
+  `--no-publish-service`.
 - `scripts/build-app.sh` copies the dev bundle, sets the Info.plist (bundle id `io.github.orchardxr.wivrn`, version
   from `VERSION`), runs macdeployqt (slow: it scans the QML imports), removes the Qt modules macdeployqt deploys but
   nothing uses (Qt3D, Multimedia, Pdf, Quick3D, WebEngine, Positioning, ... and their plugins and QML modules; it then
