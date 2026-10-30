@@ -1,0 +1,30 @@
+From: wivrn-macos
+Subject: [PATCH] macos-relocatable-runtime-manifest
+
+---
+ server/active_runtime.cpp | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/server/active_runtime.cpp b/server/active_runtime.cpp
+index 0db46279b1d9a007716807c5677c8fcfd7a4bcbd..996f0ddfac5ac96d51337227ed8a38f11e9d669d 100644
+--- a/server/active_runtime.cpp
++++ b/server/active_runtime.cpp
+@@ -78,6 +78,18 @@ std::vector<std::filesystem::path> active_runtime::manifest_path()
+ 	if (std::filesystem::exists(dev_manifest))
+ 		return {dev_manifest};
+ 
++#ifdef __APPLE__
++	// Relocatable: WiVRn.app/Contents/{MacOS,Resources/openxr/1} or <prefix>/{libexec/wivrn,share/openxr/1}
++	for (const auto & dir: {exe.parent_path().parent_path() / "Resources/openxr/1",
++	                        exe.parent_path().parent_path().parent_path() / location})
++	{
++		if (std::filesystem::is_directory(dir))
++			return filter_files(dir, prefix);
++	}
++	if (not std::filesystem::is_directory(WIVRN_INSTALL_PREFIX / location))
++		return {};
++#endif
++
+ 	// Assume we are installed
+ 	return filter_files(WIVRN_INSTALL_PREFIX / location, prefix);
+ }

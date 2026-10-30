@@ -80,11 +80,6 @@ cat > "$new/bin/wivrn-server" <<'SH'
 here="$(cd "$(dirname "$0")/.." && pwd -P)"
 : "${VK_DRIVER_FILES:=$here/share/vulkan/icd.d/MoltenVK_icd.json}"
 export VK_DRIVER_FILES
-# The server sets the active OpenXR runtime from its configured prefix; elsewhere (a moved tree) it would not find it.
-prefix="$(sed -n 's/^prefix=//p' "$here/share/wivrn/build-info")"
-if [ "$(cd "$prefix" 2>/dev/null && pwd -P)" != "$here" ]; then
-	set -- --no-manage-active-runtime "$@"
-fi
 exec "$here/libexec/wivrn/wivrn-server" "$@"
 SH
 chmod +x "$new/bin/wivrn-server"
