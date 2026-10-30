@@ -10,6 +10,7 @@
 #   Resources/openxr/1/openxr_wivrn.json the runtime manifest (the server sets it active on connection)
 #   Resources/vulkan/icd.d/MoltenVK_icd.json
 #   Resources/wivrn/{ipc-stamp,build-info}
+#   Resources/AppIcon.icns               from third_party/wivrn/images/wivrn.svg
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Only the repo, Homebrew and the system: macdeployqt looks its tools up through PATH and must not stat user folders
@@ -47,6 +48,23 @@ plutil -replace CFBundleVersion -string "$VERSION" "$plist"
 plutil -replace LSMinimumSystemVersion -string 14.2 "$plist"
 plutil -replace NSHighResolutionCapable -bool true "$plist"
 plutil -replace NSAudioCaptureUsageDescription -string "WiVRn streams the game's audio to the headset." "$plist"
+
+# App icon from WiVRn's artwork, inset to the macOS icon grid (824 of 1024)
+echo "==> icon"
+iconset="$ROOT/build/AppIcon.iconset"
+rm -rf "$iconset"
+mkdir -p "$iconset"
+for s in 16 32 128 256 512; do
+	for scale in 1 2; do
+		suffix="" px=$((s * scale))
+		[[ $scale == 1 ]] || suffix=@2x
+		art=$((px * 824 / 1024))
+		rsvg-convert -w "$art" -h "$art" --page-width "$px" --page-height "$px" --left $(((px - art) / 2)) \
+			--top $(((px - art) / 2)) "$ROOT/third_party/wivrn/images/wivrn.svg" -o "$iconset/icon_${s}x${s}$suffix.png"
+	done
+done
+iconutil -c icns "$iconset" -o "$c/Resources/AppIcon.icns"
+plutil -replace CFBundleIconFile -string AppIcon "$plist"
 
 cp "$SERVER" "$c/MacOS/wivrn-server"
 cp -L /opt/homebrew/opt/dbus/bin/dbus-daemon "$c/MacOS/dbus-daemon"

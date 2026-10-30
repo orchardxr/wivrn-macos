@@ -1,0 +1,43 @@
+From: wivrn-macos
+Subject: [PATCH] macos-dashboard-steam-info
+
+---
+ dashboard/qml/SteamLaunchOptions.qml | 18 ++++++++++++++++++
+ 1 file changed, 18 insertions(+)
+
+diff --git a/dashboard/qml/SteamLaunchOptions.qml b/dashboard/qml/SteamLaunchOptions.qml
+index 6b44fbc017b70029e7b8d5f0ef05c5b1dfbd1a3e..7587edc2cb6752469aa55292ea981c752202579c 100644
+--- a/dashboard/qml/SteamLaunchOptions.qml
++++ b/dashboard/qml/SteamLaunchOptions.qml
+@@ -4,13 +4,31 @@ import QtQuick.Controls as Controls
+ import io.github.wivrn.wivrn
+ 
+ ColumnLayout {
++    id: options
++    // The launch options are for Proton's pressure-vessel; on macOS Windows games go through VarboR
++    readonly property bool macos: Qt.platform.os == "osx"
++
++    Controls.Label {
++        visible: options.macos
++        text: i18n("Windows games: use <a href=\"https://github.com/orchardxr/varbor\">VarboR</a>. Native macOS OpenXR apps need no setup.")
++        textFormat: Text.StyledText
++        wrapMode: Text.WordWrap
++        Layout.fillWidth: true
++        onLinkActivated: (link) => Qt.openUrlExternally(link)
++        HoverHandler {
++            cursorShape: parent.hoveredLink ? Qt.PointingHandCursor : Qt.ArrowCursor
++        }
++    }
++
+     Controls.Label {
++        visible: !options.macos
+         text: i18n("For Steam games, right click on the game in Steam, go in Properties > General and paste this in \"Launch options\":")
+         wrapMode: Text.WordWrap
+         Layout.fillWidth: true
+     }
+ 
+     RowLayout {
++        visible: !options.macos
+         Controls.TextField {
+             text: WivrnServer.steamCommand
+             wrapMode: Text.WordWrap

@@ -1,0 +1,26 @@
+From: wivrn-macos
+Subject: [PATCH] macos-server-steam-log
+
+---
+ server/main.cpp | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/server/main.cpp b/server/main.cpp
+index 93036f49ae05ab7cf88564412e8c6f7bcfe1261d..f90551408dca9b4ca8bbd7ef1bc9cf3366b20c0e 100644
+--- a/server/main.cpp
++++ b/server/main.cpp
+@@ -1082,11 +1082,14 @@ auto create_dbus_connection()
+ int inner_main(int argc, char * argv[], bool show_instructions)
+ {
+ 	std::cerr << "WiVRn " << wivrn::display_version() << " starting" << std::endl;
++#ifndef __APPLE__
++	// pressure-vessel launch options; on macOS Windows games go through VarboR
+ 	if (show_instructions)
+ 	{
+ 		if (auto command = steam_command(); not command.empty())
+ 			std::cerr << "For Steam games, set command to " << command << std::endl;
+ 	}
++#endif
+ 
+ 	std::filesystem::create_directories(socket_path().parent_path());
+ 

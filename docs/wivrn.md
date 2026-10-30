@@ -431,6 +431,30 @@ bus had gone with the old dashboard. Now:
 - the updater's script waits for the old dashboard's process group (its bus, servers and watchdog; at most 20 s) to be
   gone, and unsets both variables before `open`.
 
+**0019-macos-dashboard-window** (2026-10-31)
+
+A click on the menu-bar item toggled the window (upstream's tray behaviour), so it was often hidden, and a Dock click
+or reopening the app only activated it: Qt answers `applicationShouldHandleReopen` without showing hidden windows.
+`window_helper_macos.mm` installs a `kAEReopenApplication` handler that shows, unminimises and raises the window and
+activates the app (macOS then switches to the window's Space, also from a full-screen one). The menu-bar item now has
+a native menu (Qt.labs.platform `SystemTrayIcon.menu`, a `QCocoaMenu`/`NSMenu`): a status line, Show WiVRn (same
+code path) and Quit WiVRn (the window's quit path: confirmation while a session runs, then server and bus stop). Known
+limit (macOS 26+): a regular app's menu-bar menu doesn't appear over another app's full-screen Space; the Dock icon
+works there.
+
+**0020-macos-dashboard-adb-path** (2026-10-31)
+
+Apps opened from Finder or the Dock get launchd's PATH (`/usr/bin:/bin:/usr/sbin:/sbin`), so adb wasn't found.
+`find_executable` also looks in `/opt/homebrew/bin` and `/usr/local/bin`; adb also in
+`~/Library/Android/sdk/platform-tools`, `$ANDROID_HOME/platform-tools` and `$ANDROID_SDK_ROOT/platform-tools`. The APK
+installer runs that adb too (it ran `adb` by name). The not-installed message suggests
+`brew install android-platform-tools`. adb isn't bundled.
+
+**0021-macos-dashboard-steam-info** (2026-10-31), **0022-macos-server-steam-log** (2026-10-31)
+
+The Steam launch options (`PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES=1 %command%`) are for Proton's pressure-vessel. On
+macOS the dashboard's Steam box points to VarboR instead, and the server doesn't log them.
+
 ## Step 7 findings (2026-10-24)
 
 - **Startup stall: fixed** (root cause in docs/encoder.md). It was libmvt's prewarm PTS (`CLOCK_UPTIME_RAW`) against

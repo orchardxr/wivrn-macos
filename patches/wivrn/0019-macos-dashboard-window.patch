@@ -1,0 +1,264 @@
+From: wivrn-macos
+Subject: [PATCH] macos-dashboard-window
+
+---
+ dashboard/CMakeLists.txt         |  4 +++-
+ dashboard/main.cpp               |  6 +++++
+ dashboard/qml/Main.qml           | 45 +++++++++++++++++++++++++++++++++-
+ dashboard/window_helper.cpp      | 38 +++++++++++++++++++++++++++++
+ dashboard/window_helper.h        | 42 ++++++++++++++++++++++++++++++++
+ dashboard/window_helper_macos.mm | 52 ++++++++++++++++++++++++++++++++++++++++
+ 6 files changed, 185 insertions(+), 2 deletions(-)
+
+diff --git a/dashboard/CMakeLists.txt b/dashboard/CMakeLists.txt
+index f34aacbef27760c30df268cad29e8457a06f02f4..6718f5884501e93e7cf96ee4077fed5236fdf1e6 100644
+--- a/dashboard/CMakeLists.txt
++++ b/dashboard/CMakeLists.txt
+@@ -28,6 +28,7 @@ add_executable(wivrn-dashboard
+     firewall.cpp
+     vulkan_info.cpp
+     updater.cpp
++    window_helper.cpp
+ )
+ 
+ set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/../dbus/io.github.wivrn.Server.xml PROPERTIES INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/wivrn_qdbus_types.h")
+@@ -93,7 +94,8 @@ target_link_libraries(wivrn-dashboard
+ )
+ 
+ if(APPLE)
+-    target_link_libraries(wivrn-dashboard PRIVATE "-framework SystemConfiguration" "-framework CoreFoundation")
++    target_sources(wivrn-dashboard PRIVATE window_helper_macos.mm)
++    target_link_libraries(wivrn-dashboard PRIVATE "-framework SystemConfiguration" "-framework CoreFoundation" "-framework AppKit")
+ endif()
+ 
+ install(TARGETS wivrn-dashboard ${KDE_INSTALL_TARGETS_DEFAULT_ARGS})
+diff --git a/dashboard/main.cpp b/dashboard/main.cpp
+index 212ccc2ab8d76453c4e1b34f13cc9dcaa672932d..4237bea2c206cd0186528ba7602df975d67d0ba6 100644
+--- a/dashboard/main.cpp
++++ b/dashboard/main.cpp
+@@ -28,6 +28,8 @@
+ #include <unistd.h>
+ 
+ #include "dashboard_utils.h"
++#include "window_helper.h"
++#include <QTimer>
+ 
+ // macOS has no session bus: run a private one in the user temp dir, shared with the servers we start
+ struct stop_process
+@@ -236,6 +238,10 @@ int main(int argc, char * argv[])
+ 	{
+ 		return -1;
+ 	}
++#ifdef __APPLE__
++	if (auto window = qobject_cast<QWindow *>(engine.rootObjects().first()))
++		QTimer::singleShot(0, window, [window] { window_helper::show_on_reopen(window); });
++#endif
+ 
+ 	return app.exec();
+ }
+diff --git a/dashboard/qml/Main.qml b/dashboard/qml/Main.qml
+index 4307d4197b3bd740ea7947c8972eeca432e97dc1..a024adc2d695ca9966ea83a1d99188cd9857a3d0 100644
+--- a/dashboard/qml/Main.qml
++++ b/dashboard/qml/Main.qml
+@@ -19,7 +19,50 @@ Kirigami.ApplicationWindow {
+         id: systray
+         visible: true
+         icon.source: Qt.resolvedUrl("wivrn.svg")
+-        onActivated: root.visible = !root.visible
++        // On macOS a click on the menu-bar item opens its menu
++        onActivated: if (Qt.platform.os != "osx") root.visible = !root.visible
++        menu: Qt.platform.os == "osx" ? systray_menu : null
++    }
++
++    Menu {
++        id: systray_menu
++        MenuItem {
++            enabled: false
++            text: {
++                switch (WivrnServer.serverStatus) {
++                case WivrnServer.Started:
++                    return WivrnServer.headsetConnected ? i18n("Headset connected") : i18n("Server running");
++                case WivrnServer.Starting:
++                case WivrnServer.Restarting:
++                    return i18n("Server starting");
++                case WivrnServer.Stopping:
++                    return i18n("Server stopping");
++                case WivrnServer.FailedToStart:
++                    return i18n("Server failed to start");
++                default:
++                    return i18n("Server stopped");
++                }
++            }
++        }
++        MenuSeparator {}
++        MenuItem {
++            text: i18n("Show WiVRn")
++            onTriggered: WindowHelper.bringToFront(root)
++        }
++        MenuSeparator {}
++        MenuItem {
++            text: i18n("Quit WiVRn")
++            onTriggered: root.request_quit()
++        }
++    }
++
++    function request_quit() {
++        if (WivrnServer.ownServer && WivrnServer.sessionRunning) {
++            WindowHelper.bringToFront(root);
++            confirm_close.open();
++        } else {
++            Qt.quit();
++        }
+     }
+ 
+     Component{
+diff --git a/dashboard/window_helper.cpp b/dashboard/window_helper.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..55f2f684d914a8d13656882896fec7a226e20ebc
+--- /dev/null
++++ b/dashboard/window_helper.cpp
+@@ -0,0 +1,38 @@
++/*
++ * WiVRn VR streaming
++ * Copyright (C) 2026  wivrn-macos contributors
++ *
++ * This program is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
++ */
++
++#include "window_helper.h"
++
++#ifdef __APPLE__
++void macos_activate_app();
++#endif
++
++void window_helper::bringToFront(QWindow * window)
++{
++	if (not window)
++		return;
++	if (window->windowState() & Qt::WindowMinimized)
++		window->showNormal();
++	else
++		window->show();
++	window->raise();
++	window->requestActivate();
++#ifdef __APPLE__
++	macos_activate_app();
++#endif
++}
+diff --git a/dashboard/window_helper.h b/dashboard/window_helper.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..2c2f5e0006e911010955fda3f6370b506aa81315
+--- /dev/null
++++ b/dashboard/window_helper.h
+@@ -0,0 +1,42 @@
++/*
++ * WiVRn VR streaming
++ * Copyright (C) 2026  wivrn-macos contributors
++ *
++ * This program is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
++ */
++
++#pragma once
++
++#include <QObject>
++#include <QWindow>
++#include <QtQml/qqmlregistration.h>
++
++class window_helper : public QObject
++{
++	Q_OBJECT
++	QML_NAMED_ELEMENT(WindowHelper)
++	QML_SINGLETON
++
++public:
++	using QObject::QObject;
++
++	// Shows, unminimises and raises the window and activates the app; on macOS the system then switches to the
++	// window's Space, also from another app's full-screen Space
++	Q_INVOKABLE static void bringToFront(QWindow * window);
++
++#ifdef __APPLE__
++	// Dock icon click or opening the running app (kAEReopenApplication): bring the window to front
++	static void show_on_reopen(QWindow * window);
++#endif
++};
+diff --git a/dashboard/window_helper_macos.mm b/dashboard/window_helper_macos.mm
+new file mode 100644
+index 0000000000000000000000000000000000000000..513ca033758ad9043b3657defb22c53134637774
+--- /dev/null
++++ b/dashboard/window_helper_macos.mm
+@@ -0,0 +1,52 @@
++/*
++ * WiVRn VR streaming
++ * Copyright (C) 2026  wivrn-macos contributors
++ *
++ * This program is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
++ */
++
++#include "window_helper.h"
++
++#include <QDebug>
++#include <QPointer>
++
++#import <AppKit/AppKit.h>
++
++void macos_activate_app()
++{
++	[NSApp activateIgnoringOtherApps:YES];
++}
++
++@interface WivrnReopenHandler : NSObject
++@property QPointer<QWindow> window;
++@end
++
++@implementation WivrnReopenHandler
++- (void)handleReopen:(NSAppleEventDescriptor *)event withReply:(NSAppleEventDescriptor *)reply
++{
++	qInfo() << "Reopen: showing the window";
++	window_helper::bringToFront(self.window);
++}
++@end
++
++// Qt only activates the app on reopen, so a window hidden from the menu-bar item stayed hidden
++void window_helper::show_on_reopen(QWindow * window)
++{
++	static WivrnReopenHandler * handler = [WivrnReopenHandler new];
++	handler.window = window;
++	[[NSAppleEventManager sharedAppleEventManager] setEventHandler:handler
++	                                                   andSelector:@selector(handleReopen:withReply:)
++	                                                 forEventClass:kCoreEventClass
++	                                                    andEventID:kAEReopenApplication];
++}

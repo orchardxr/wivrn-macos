@@ -79,7 +79,7 @@ run in the same login session as the server (Mach bootstrap service).
 
 ## WiVRn.app
 
-WiVRn's own Qt 6 / Kirigami dashboard (`third_party/wivrn/dashboard`, patches 0012, 0014, 0016, 0017 and 0018; what they
+WiVRn's own Qt 6 / Kirigami dashboard (`third_party/wivrn/dashboard`, patches 0012, 0014, 0016 to 0021; what they
 change: [wivrn.md](wivrn.md)) with the server, a private `dbus-daemon` and the OpenXR runtime:
 
 ```
@@ -108,6 +108,8 @@ WiVRn.app/Contents/
   checks that no Mach-O in the bundle links a missing `@rpath` library), bundles the server's and dbus-daemon's
   Homebrew dylibs and MoltenVK, and signs ad hoc (`codesign --deep`). Size: 201 MB after macdeployqt (before the
   server and its libraries are added), 186 MB finished, 80 MB zipped. macdeployqt takes ~15 min.
+  The app icon (`Resources/AppIcon.icns`, `CFBundleIconFile`) is rendered from `third_party/wivrn/images/wivrn.svg`
+  with rsvg-convert and iconutil (16 to 1024 px), inset to the 824/1024 icon grid.
 - Logs: `~/Library/Logs/WiVRn/{wivrn-server,wivrn-dashboard}.log`, rotated (patch 0016). Known issues: [TODO.md](../TODO.md).
 - Version: `VERSION` is `<WiVRn major>.<WiVRn minor>.<wivrn-macos revision>`, the release tag is `v` + it, and
   the app's self-update compares it with the latest release.

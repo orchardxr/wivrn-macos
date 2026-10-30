@@ -1,0 +1,210 @@
+From: wivrn-macos
+Subject: [PATCH] macos-dashboard-adb-path
+
+---
+ dashboard/adb.cpp                | 37 ++++++++++++++++++++++++++++++++++++-
+ dashboard/adb.h                  |  5 +++++
+ dashboard/apk_installer.cpp      |  3 ++-
+ dashboard/dashboard_utils.cpp    |  7 +++++++
+ dashboard/qml/ApkInstallPage.qml |  2 +-
+ dashboard/qml/Main.qml           |  4 ++--
+ dashboard/qml/WizardPage.qml     |  4 ++--
+ 7 files changed, 55 insertions(+), 7 deletions(-)
+
+diff --git a/dashboard/adb.cpp b/dashboard/adb.cpp
+index 23796429445336d061a4093b78c9104c29f257c9..0da15a57cd14779b4300fc59321cdeab0454cf3c 100644
+--- a/dashboard/adb.cpp
++++ b/dashboard/adb.cpp
+@@ -18,7 +18,11 @@
+ 
+ #include "adb.h"
+ 
++#include "dashboard_utils.h"
+ #include "escape_sandbox.h"
++#include <KLocalizedString>
++#include <QDir>
++#include <QStandardPaths>
+ #include <QCoroProcess>
+ #include <QCoroQmlTask>
+ #include <QProcess>
+@@ -29,6 +33,35 @@
+ 
+ using namespace std::chrono_literals;
+ 
++static QString configured_path = "adb";
++
++QString adb::executable()
++{
++#ifdef __APPLE__
++	if (configured_path == "adb")
++	{
++		if (auto path = find_executable("adb"); not path.isEmpty())
++			return path;
++		QStringList dirs{QDir::homePath() + "/Library/Android/sdk/platform-tools"};
++		for (const char * var: {"ANDROID_HOME", "ANDROID_SDK_ROOT"})
++			if (auto dir = qEnvironmentVariable(var); not dir.isEmpty())
++				dirs.push_back(dir + "/platform-tools");
++		if (auto path = QStandardPaths::findExecutable("adb", dirs); not path.isEmpty())
++			return path;
++	}
++#endif
++	return configured_path;
++}
++
++QString adb::notInstalledMessage()
++{
++#ifdef __APPLE__
++	return i18n("ADB is not installed. Install it with: brew install android-platform-tools");
++#else
++	return i18n("ADB is not installed");
++#endif
++}
++
+ adb::adb()
+ {
+ 	QSettings settings;
+@@ -41,6 +74,7 @@ adb::adb()
+ QCoro::Task<> adb::checkIfAdbIsInstalled()
+ {
+ 	std::unique_ptr<QProcess> which_adb;
++	m_path = executable();
+ 	if (m_path == "adb")
+ 		which_adb = escape_sandbox("which", "adb");
+ 	else
+@@ -56,7 +90,7 @@ QCoro::Task<> adb::checkIfAdbIsInstalled()
+ 		if (m_path == "adb")
+ 			qDebug() << "adb found at" << QString{which_adb->readAllStandardOutput()}.trimmed();
+ 		else
+-			qDebug() << "adb found at" << m_path << "(custom path)";
++			qDebug() << "adb found at" << m_path;
+ 
+ 		if (!m_adb_installed)
+ 		{
+@@ -292,6 +326,7 @@ QVariant adb::data(const QModelIndex & index, int role) const
+ 
+ void adb::setPath(QString path)
+ {
++	configured_path = path;
+ 	m_path = path;
+ 	QTimer::singleShot(0, this, &adb::checkIfAdbIsInstalled);
+ }
+diff --git a/dashboard/adb.h b/dashboard/adb.h
+index f3725bd350622b623161b2b991f2592618e0d1a1..f5cbe59e7e13e2f9373d307d2cf1c068773b214b 100644
+--- a/dashboard/adb.h
++++ b/dashboard/adb.h
+@@ -40,6 +40,7 @@ class adb : public QAbstractListModel
+ 	};
+ 
+ 	Q_PROPERTY(bool adbInstalled READ adbInstalled NOTIFY adbInstalledChanged)
++	Q_PROPERTY(QString notInstalledMessage READ notInstalledMessage CONSTANT)
+ 
+ 	bool m_adb_installed = false;
+ 	QString m_path;
+@@ -76,6 +77,10 @@ public:
+ 
+ 	Q_INVOKABLE void setPath(QString path);
+ 
++	// The adb to run: the custom location, else adb from PATH (on macOS also Homebrew and the Android SDK)
++	static QString executable();
++	static QString notInstalledMessage();
++
+ protected:
+ 	QHash<int, QByteArray> roleNames() const override;
+ 
+diff --git a/dashboard/apk_installer.cpp b/dashboard/apk_installer.cpp
+index 8a1d7436f653ff868eefe11180d71d352fded13b..f17d014337f223ab9bfc39cf53715eef84cc4ac6 100644
+--- a/dashboard/apk_installer.cpp
++++ b/dashboard/apk_installer.cpp
+@@ -17,6 +17,7 @@
+  */
+ 
+ #include "apk_installer.h"
++#include "adb.h"
+ #include "escape_sandbox.h"
+ #include "version.h"
+ #include <KLocalization>
+@@ -209,7 +210,7 @@ QCoro::Task<> apk_installer::doInstallApk(QString serial)
+ 	cancellableChanged(m_cancellable = false);
+ 	bytesTotalChanged(m_bytesTotal = -1); // Make the progress bar indeterminate
+ 
+-	auto adb_install = escape_sandbox("adb", "-s", serial, "install", "-r", m_apkFile.fileName());
++	auto adb_install = escape_sandbox(adb::executable(), "-s", serial, "install", "-r", m_apkFile.fileName());
+ 	adb_install->setProcessChannelMode(QProcess::ForwardedChannels);
+ 
+ 	auto co_adb_install = qCoro(*adb_install);
+diff --git a/dashboard/dashboard_utils.cpp b/dashboard/dashboard_utils.cpp
+index 2ff51cf39934608827412672bafe486bd021d31c..21f8fa46f2e5424260e01b7aefaa3938dc9b1751 100644
+--- a/dashboard/dashboard_utils.cpp
++++ b/dashboard/dashboard_utils.cpp
+@@ -27,7 +27,14 @@ QString find_executable(const QString & name)
+ 		return QStandardPaths::findExecutable(
+ 		        name,
+ 		        QStringList({"/run/host/usr/sbin", "/run/host/usr/bin", "/run/host/sbin", "/run/host/bin"}));
++#ifdef __APPLE__
++	// Apps opened from Finder or the Dock get launchd's PATH, without Homebrew
++	if (auto path = QStandardPaths::findExecutable(name); not path.isEmpty())
++		return path;
++	return QStandardPaths::findExecutable(name, {"/opt/homebrew/bin", "/usr/local/bin"});
++#else
+ 	return QStandardPaths::findExecutable(name);
++#endif
+ }
+ 
+ #ifdef __APPLE__
+diff --git a/dashboard/qml/ApkInstallPage.qml b/dashboard/qml/ApkInstallPage.qml
+index be29c5309d9895fb323ca9fa6addcab928eb06bd..b7ca8656adeab74472682c25abc506975bd4645d 100644
+--- a/dashboard/qml/ApkInstallPage.qml
++++ b/dashboard/qml/ApkInstallPage.qml
+@@ -42,7 +42,7 @@ Kirigami.ScrollablePage {
+                 else if (!ApkInstaller.apkAvailable)
+                     return i18n("No APK is available for this version");
+                 else if (!Adb.adbInstalled)
+-                    return i18n("ADB is not installed");
++                    return Adb.notInstalledMessage;
+                 else
+                     return i18n("Connect a headset and make sure developer mode is enabled");
+             }
+diff --git a/dashboard/qml/Main.qml b/dashboard/qml/Main.qml
+index a024adc2d695ca9966ea83a1d99188cd9857a3d0..d1808396cab23f9ef3ed0e4c0f374e7789c81f03 100644
+--- a/dashboard/qml/Main.qml
++++ b/dashboard/qml/Main.qml
+@@ -441,7 +441,7 @@ Kirigami.ApplicationWindow {
+                         Kirigami.FormData.label: i18nc("label for USB status or connect button", "USB")
+                         visible: !Adb.adbInstalled && !WivrnServer.headsetConnected
+                         enabled: root.server_started
+-                        text: i18n("ADB is not installed")
++                        text: Adb.notInstalledMessage
+                     }
+ 
+                     Controls.Label {
+@@ -499,7 +499,7 @@ Kirigami.ApplicationWindow {
+                     if (!root.server_started)
+                         return "";
+                     if (!Adb.adbInstalled)
+-                        return i18n("ADB is not installed");
++                        return Adb.notInstalledMessage;
+                     return "";
+                 }
+             },
+diff --git a/dashboard/qml/WizardPage.qml b/dashboard/qml/WizardPage.qml
+index 3873d3e42ad4c3ff5c5a3fbde3850fe47f05b09e..14e150818d15bec11bb408bcbe8b4f3fdb4b1757 100644
+--- a/dashboard/qml/WizardPage.qml
++++ b/dashboard/qml/WizardPage.qml
+@@ -208,7 +208,7 @@ Kirigami.ScrollablePage {
+             Controls.Label {
+                 Layout.fillWidth: true
+                 wrapMode: Text.WordWrap
+-                text: i18n("ADB is not installed")
++                text: Adb.notInstalledMessage
+                 visible: device_list.count == 0 && !Adb.adbInstalled && ApkInstaller.apkAvailable
+             }
+ 
+@@ -334,7 +334,7 @@ Kirigami.ScrollablePage {
+                     Controls.ToolTip.delay: Kirigami.Units.toolTipDelay
+                     Controls.ToolTip.text: {
+                         if (!Adb.adbInstalled)
+-                            return i18n("ADB is not installed");
++                            return Adb.notInstalledMessage;
+                         if (select_usb_device.connected_headset_count == 0)
+                             return i18n("No headset is connected or your headset is not in developer mode");
+                         return "";
