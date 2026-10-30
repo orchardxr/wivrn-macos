@@ -441,13 +441,15 @@ that shows, unminimises and raises the window and activates the app. The menu-ba
 WiVRn (confirmation while a session runs, then server and bus stop). WiVRn.app is menu-bar only (`LSUIElement`, no
 Dock icon): on macOS 26+ only such apps get their status-item menu over another app's full-screen Space. Closing the
 window leaves WiVRn in the menu bar (`setQuitOnLastWindowClosed(false)`, no quit in `onClosing` on macOS).
-The window always opens on the desktop, never over a full-screen app; from a full-screen app macOS switches to the
-desktop. A menu-bar-only app's new window opens on the active Space, full-screen ones included, so the app is a
-regular one (`setActivationPolicy`) while the window comes up, at launch and when Show reopens a closed window, and
-menu-bar only again a second later (the Dock icon shows for that second). The app is activated before the window is
-shown; a window still open on another Space is hidden and shown again, so it comes up where macOS switched to.
-Hiding on close instead would need the close rejected in `onClosing`, which also cancels Quit and logout. The other
-dialogs (About, update notice, prompts) are inside the window or attached to it.
+Show from a full-screen app switches to the desktop with the window there, as in VarboR. A menu-bar-only app's new
+window opens on the active Space, full-screen ones included, and Qt destroys the native window on close. So the close
+button only hides it: an event filter takes the spontaneous `QEvent::Close` (Quit and logout close the window
+programmatically and still go through). Show activates the app first, then shows the window. A window still open on
+another Space is hidden and shown again, so it comes up where macOS switched to. Switching the activation policy
+instead (regular while the window comes up) made macOS jump back to the full-screen Space when the app became
+menu-bar only again. The other dialogs (About, update notice, prompts) are inside the window or attached to it.
+Known, same in VarboR: clicking the menu-bar item while the window is active switches back to the full-screen app,
+whose menu bar is still shown. A window opened at launch from inside a full-screen app opens there.
 
 **0020-macos-dashboard-adb-path** (2026-10-31)
 

@@ -2,13 +2,13 @@ From: wivrn-macos
 Subject: [PATCH] macos-dashboard-window
 
 ---
- dashboard/CMakeLists.txt         |  4 +-
- dashboard/main.cpp               |  9 +++++
- dashboard/qml/Main.qml           | 48 +++++++++++++++++++++++-
- dashboard/window_helper.cpp      | 39 ++++++++++++++++++++
- dashboard/window_helper.h        | 45 +++++++++++++++++++++++
- dashboard/window_helper_macos.mm | 79 ++++++++++++++++++++++++++++++++++++++++
- 6 files changed, 222 insertions(+), 2 deletions(-)
+ dashboard/CMakeLists.txt         |  4 ++-
+ dashboard/main.cpp               |  8 +++++
+ dashboard/qml/Main.qml           | 48 ++++++++++++++++++++++++-
+ dashboard/window_helper.cpp      | 39 +++++++++++++++++++++
+ dashboard/window_helper.h        | 43 +++++++++++++++++++++++
+ dashboard/window_helper_macos.mm | 75 ++++++++++++++++++++++++++++++++++++++++
+ 6 files changed, 215 insertions(+), 2 deletions(-)
 
 diff --git a/dashboard/CMakeLists.txt b/dashboard/CMakeLists.txt
 index f34aacbef27760c30df268cad29e8457a06f02f4..6718f5884501e93e7cf96ee4077fed5236fdf1e6 100644
@@ -33,7 +33,7 @@ index f34aacbef27760c30df268cad29e8457a06f02f4..6718f5884501e93e7cf96ee4077fed52
  
  install(TARGETS wivrn-dashboard ${KDE_INSTALL_TARGETS_DEFAULT_ARGS})
 diff --git a/dashboard/main.cpp b/dashboard/main.cpp
-index a63faf24c1981a2c8bdbfebef99e54e1dc739993..877f45f03621a76d31cd980e3d6689e2466b0a67 100644
+index a63faf24c1981a2c8bdbfebef99e54e1dc739993..464343670454a5a098c61016c4c60cc1c736fb55 100644
 --- a/dashboard/main.cpp
 +++ b/dashboard/main.cpp
 @@ -31,6 +31,8 @@
@@ -45,15 +45,7 @@ index a63faf24c1981a2c8bdbfebef99e54e1dc739993..877f45f03621a76d31cd980e3d6689e2
  
  // macOS has no session bus: run a private one in the user temp dir, shared with the servers we start
  struct stop_process
-@@ -203,6 +205,7 @@ int main(int argc, char * argv[])
- 	QApplication app(argc, argv);
- #ifdef __APPLE__
- 	start_dashboard_log();
-+	window_helper::launch_on_desktop();
- 	handle_quit_signals(&app);
- 	auto session_bus = start_session_bus();
- 	set_vulkan_driver();
-@@ -261,6 +264,12 @@ int main(int argc, char * argv[])
+@@ -261,6 +263,12 @@ int main(int argc, char * argv[])
  	{
  		return -1;
  	}
@@ -179,10 +171,10 @@ index 0000000000000000000000000000000000000000..7a98adcfacca2a9b72f3c09a117060bf
 +}
 diff --git a/dashboard/window_helper.h b/dashboard/window_helper.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..80f26bd0ad7c8f1fb3bde4e79ea00fc191fb822e
+index 0000000000000000000000000000000000000000..e87acc88fd73b6f20af9f7894f646f8dee671cd2
 --- /dev/null
 +++ b/dashboard/window_helper.h
-@@ -0,0 +1,45 @@
+@@ -0,0 +1,43 @@
 +/*
 + * WiVRn VR streaming
 + * Copyright (C) 2026  wivrn-macos contributors
@@ -221,19 +213,17 @@ index 0000000000000000000000000000000000000000..80f26bd0ad7c8f1fb3bde4e79ea00fc1
 +	Q_INVOKABLE static void bringToFront(QWindow * window);
 +
 +#ifdef __APPLE__
-+	// Before the window exists: it must open on the desktop, not over a full-screen app
-+	static void launch_on_desktop();
-+	// Once the window is up: menu-bar only from now on; opening the running app again from Finder or Spotlight
-+	// (kAEReopenApplication) brings the window to front
++	// The close button hides the window; opening the running app again from Finder or Spotlight
++	// (kAEReopenApplication) brings it to front
 +	static void show_on_reopen(QWindow * window);
 +#endif
 +};
 diff --git a/dashboard/window_helper_macos.mm b/dashboard/window_helper_macos.mm
 new file mode 100644
-index 0000000000000000000000000000000000000000..d3e5361b51b5ff2e9dc81287a88a30cb26c52ea0
+index 0000000000000000000000000000000000000000..852ea3e6bce505bf0ec66fedbc8ec8904e5abc76
 --- /dev/null
 +++ b/dashboard/window_helper_macos.mm
-@@ -0,0 +1,79 @@
+@@ -0,0 +1,75 @@
 +/*
 + * WiVRn VR streaming
 + * Copyright (C) 2026  wivrn-macos contributors
@@ -255,34 +245,35 @@ index 0000000000000000000000000000000000000000..d3e5361b51b5ff2e9dc81287a88a30cb
 +#include "window_helper.h"
 +
 +#include <QDebug>
++#include <QEvent>
 +#include <QPointer>
 +
 +#import <AppKit/AppKit.h>
 +
-+// A menu-bar-only app's new window opens on the active Space, also over a full-screen app; a regular app's opens on
-+// the desktop. Be a regular app while the window comes up, then menu-bar only again.
-+static void menu_bar_only_soon()
-+{
-+	dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-+		[NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
-+	});
-+}
-+
-+static void regular_while_showing()
-+{
-+	[NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
-+	menu_bar_only_soon();
-+}
-+
 +void macos_activate_app(QWindow * window)
 +{
-+	if (not window->isVisible())
-+		regular_while_showing();
 +	// Shown again right away, a window on another Space comes up on the one macOS switches to
-+	else if (not reinterpret_cast<NSView *>(window->winId()).window.onActiveSpace)
++	if (window->isVisible() and not reinterpret_cast<NSView *>(window->winId()).window.onActiveSpace)
 +		window->hide();
 +	[NSApp activateIgnoringOtherApps:YES];
 +}
++
++// The close button hides the window instead. A closed window is destroyed, and a menu-bar-only app's new window opens
++// on the active Space, also over a full-screen app; a hidden one comes back on its desktop. Quit and logout close the
++// window programmatically (not spontaneously), so they still go through.
++class hide_on_close : public QObject
++{
++public:
++	using QObject::QObject;
++	bool eventFilter(QObject * watched, QEvent * event) override
++	{
++		if (event->type() != QEvent::Close or not event->spontaneous())
++			return false;
++		event->ignore();
++		static_cast<QWindow *>(watched)->hide();
++		return true;
++	}
++};
 +
 +@interface WivrnReopenHandler : NSObject
 +@property QPointer<QWindow> window;
@@ -296,15 +287,10 @@ index 0000000000000000000000000000000000000000..d3e5361b51b5ff2e9dc81287a88a30cb
 +}
 +@end
 +
-+void window_helper::launch_on_desktop()
-+{
-+	[NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
-+}
-+
 +// Qt only activates the app on reopen, so a closed window stayed hidden
 +void window_helper::show_on_reopen(QWindow * window)
 +{
-+	menu_bar_only_soon();
++	window->installEventFilter(new hide_on_close(window));
 +
 +	static WivrnReopenHandler * handler = [WivrnReopenHandler new];
 +	handler.window = window;
