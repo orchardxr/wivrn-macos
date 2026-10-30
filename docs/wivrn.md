@@ -433,14 +433,21 @@ bus had gone with the old dashboard. Now:
 
 **0019-macos-dashboard-window** (2026-10-31)
 
-A click on the menu-bar item toggled the window (upstream's tray behaviour), so it was often hidden, and a Dock click
-or reopening the app only activated it: Qt answers `applicationShouldHandleReopen` without showing hidden windows.
-`window_helper_macos.mm` installs a `kAEReopenApplication` handler that shows, unminimises and raises the window and
-activates the app (macOS then switches to the window's Space, also from a full-screen one). The menu-bar item now has
-a native menu (Qt.labs.platform `SystemTrayIcon.menu`, a `QCocoaMenu`/`NSMenu`): a status line, Show WiVRn (same
-code path) and Quit WiVRn (the window's quit path: confirmation while a session runs, then server and bus stop). Known
-limit (macOS 26+): a regular app's menu-bar menu doesn't appear over another app's full-screen Space; the Dock icon
-works there.
+A click on the menu-bar item toggled the window (upstream's tray behaviour), so it was often hidden, and reopening the
+app only activated it: Qt answers `applicationShouldHandleReopen` without showing hidden windows.
+`window_helper_macos.mm` installs a `kAEReopenApplication` handler (opening the running app from Finder or Spotlight)
+that shows, unminimises and raises the window and activates the app. The menu-bar item has a native menu
+(Qt.labs.platform `SystemTrayIcon.menu`, a `QCocoaMenu`/`NSMenu`): a status line, Show WiVRn (same code path) and Quit
+WiVRn (confirmation while a session runs, then server and bus stop). WiVRn.app is menu-bar only (`LSUIElement`, no
+Dock icon): on macOS 26+ only such apps get their status-item menu over another app's full-screen Space. Closing the
+window leaves WiVRn in the menu bar (`setQuitOnLastWindowClosed(false)`, no quit in `onClosing` on macOS).
+The window always opens on the desktop, never over a full-screen app; from a full-screen app macOS switches to the
+desktop. A menu-bar-only app's new window opens on the active Space, full-screen ones included, so the app is a
+regular one (`setActivationPolicy`) while the window comes up, at launch and when Show reopens a closed window, and
+menu-bar only again a second later (the Dock icon shows for that second). The app is activated before the window is
+shown; a window still open on another Space is hidden and shown again, so it comes up where macOS switched to.
+Hiding on close instead would need the close rejected in `onClosing`, which also cancels Quit and logout. The other
+dialogs (About, update notice, prompts) are inside the window or attached to it.
 
 **0020-macos-dashboard-adb-path** (2026-10-31)
 
@@ -453,7 +460,14 @@ installer runs that adb too (it ran `adb` by name). The not-installed message su
 **0021-macos-dashboard-steam-info** (2026-10-31), **0022-macos-server-steam-log** (2026-10-31)
 
 The Steam launch options (`PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES=1 %command%`) are for Proton's pressure-vessel. On
-macOS the dashboard's Steam box points to VarboR instead, and the server doesn't log them.
+macOS the dashboard's Steam box points to VarboR instead, and the server's `steam_command()` returns nothing, so it
+neither logs nor publishes them on D-Bus. (The app that still logged them was bundled before 0022.)
+
+**0023-macos-server-config-prefix** (2026-10-31)
+
+The server read `WIVRN_INSTALL_PREFIX/share/wivrn/config.json`, i.e. the build machine's install tree. A local build
+under `~/Documents` made the app ask for Documents access. Skipped on macOS (the app is relocatable); `/etc` and
+`~/.config` remain.
 
 ## Step 7 findings (2026-10-24)
 

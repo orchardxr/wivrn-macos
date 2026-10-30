@@ -1,0 +1,21 @@
+From: wivrn-macos
+Subject: [PATCH] macos-server-config-prefix
+
+---
+ server/driver/configuration.cpp | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/server/driver/configuration.cpp b/server/driver/configuration.cpp
+index e787267b9b742e10d9318e898c5014b3e6890a8c..ba3082f596ef31c256a39bb00603d08f9fd17705 100644
+--- a/server/driver/configuration.cpp
++++ b/server/driver/configuration.cpp
+@@ -93,7 +93,9 @@ nlohmann::json configuration::read_configuration()
+ 	{
+ 		nlohmann::json merged;
+ 		for (std::filesystem::path prefix: {
++#ifndef __APPLE__ // the build machine's prefix, not where the relocatable app is
+ 		             std::filesystem::path(WIVRN_INSTALL_PREFIX "/share"),
++#endif
+ 		             std::filesystem::path("/etc"),
+ 		             xdg_config_home(),
+ 		     })

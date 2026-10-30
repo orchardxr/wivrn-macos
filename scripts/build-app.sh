@@ -47,6 +47,8 @@ plutil -replace CFBundleShortVersionString -string "$VERSION" "$plist"
 plutil -replace CFBundleVersion -string "$VERSION" "$plist"
 plutil -replace LSMinimumSystemVersion -string 14.2 "$plist"
 plutil -replace NSHighResolutionCapable -bool true "$plist"
+# Menu-bar only: macOS 26+ shows a status-item menu over another app's full-screen Space only for LSUIElement apps
+plutil -replace LSUIElement -bool true "$plist"
 plutil -replace NSAudioCaptureUsageDescription -string "WiVRn streams the game's audio to the headset." "$plist"
 
 # App icon from WiVRn's artwork, inset to the macOS icon grid (824 of 1024)

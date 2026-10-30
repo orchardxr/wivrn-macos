@@ -2,13 +2,13 @@ From: wivrn-macos
 Subject: [PATCH] macos-dashboard-window
 
 ---
- dashboard/CMakeLists.txt         |  4 +++-
- dashboard/main.cpp               |  6 +++++
- dashboard/qml/Main.qml           | 45 +++++++++++++++++++++++++++++++++-
- dashboard/window_helper.cpp      | 38 +++++++++++++++++++++++++++++
- dashboard/window_helper.h        | 42 ++++++++++++++++++++++++++++++++
- dashboard/window_helper_macos.mm | 52 ++++++++++++++++++++++++++++++++++++++++
- 6 files changed, 185 insertions(+), 2 deletions(-)
+ dashboard/CMakeLists.txt         |  4 +-
+ dashboard/main.cpp               |  9 +++++
+ dashboard/qml/Main.qml           | 48 +++++++++++++++++++++++-
+ dashboard/window_helper.cpp      | 39 ++++++++++++++++++++
+ dashboard/window_helper.h        | 45 +++++++++++++++++++++++
+ dashboard/window_helper_macos.mm | 79 ++++++++++++++++++++++++++++++++++++++++
+ 6 files changed, 222 insertions(+), 2 deletions(-)
 
 diff --git a/dashboard/CMakeLists.txt b/dashboard/CMakeLists.txt
 index f34aacbef27760c30df268cad29e8457a06f02f4..6718f5884501e93e7cf96ee4077fed5236fdf1e6 100644
@@ -33,10 +33,10 @@ index f34aacbef27760c30df268cad29e8457a06f02f4..6718f5884501e93e7cf96ee4077fed52
  
  install(TARGETS wivrn-dashboard ${KDE_INSTALL_TARGETS_DEFAULT_ARGS})
 diff --git a/dashboard/main.cpp b/dashboard/main.cpp
-index 212ccc2ab8d76453c4e1b34f13cc9dcaa672932d..4237bea2c206cd0186528ba7602df975d67d0ba6 100644
+index a63faf24c1981a2c8bdbfebef99e54e1dc739993..877f45f03621a76d31cd980e3d6689e2466b0a67 100644
 --- a/dashboard/main.cpp
 +++ b/dashboard/main.cpp
-@@ -28,6 +28,8 @@
+@@ -31,6 +31,8 @@
  #include <unistd.h>
  
  #include "dashboard_utils.h"
@@ -45,11 +45,21 @@ index 212ccc2ab8d76453c4e1b34f13cc9dcaa672932d..4237bea2c206cd0186528ba7602df975
  
  // macOS has no session bus: run a private one in the user temp dir, shared with the servers we start
  struct stop_process
-@@ -236,6 +238,10 @@ int main(int argc, char * argv[])
+@@ -203,6 +205,7 @@ int main(int argc, char * argv[])
+ 	QApplication app(argc, argv);
+ #ifdef __APPLE__
+ 	start_dashboard_log();
++	window_helper::launch_on_desktop();
+ 	handle_quit_signals(&app);
+ 	auto session_bus = start_session_bus();
+ 	set_vulkan_driver();
+@@ -261,6 +264,12 @@ int main(int argc, char * argv[])
  	{
  		return -1;
  	}
 +#ifdef __APPLE__
++	// Closing the window leaves WiVRn in the menu bar
++	app.setQuitOnLastWindowClosed(false);
 +	if (auto window = qobject_cast<QWindow *>(engine.rootObjects().first()))
 +		QTimer::singleShot(0, window, [window] { window_helper::show_on_reopen(window); });
 +#endif
@@ -57,7 +67,7 @@ index 212ccc2ab8d76453c4e1b34f13cc9dcaa672932d..4237bea2c206cd0186528ba7602df975
  	return app.exec();
  }
 diff --git a/dashboard/qml/Main.qml b/dashboard/qml/Main.qml
-index 4307d4197b3bd740ea7947c8972eeca432e97dc1..a024adc2d695ca9966ea83a1d99188cd9857a3d0 100644
+index 4307d4197b3bd740ea7947c8972eeca432e97dc1..f79630d29d976e64a6c46410acc228db46286882 100644
 --- a/dashboard/qml/Main.qml
 +++ b/dashboard/qml/Main.qml
 @@ -19,7 +19,50 @@ Kirigami.ApplicationWindow {
@@ -112,12 +122,22 @@ index 4307d4197b3bd740ea7947c8972eeca432e97dc1..a024adc2d695ca9966ea83a1d99188cd
      }
  
      Component{
+@@ -37,6 +80,9 @@ Kirigami.ApplicationWindow {
+     }
+ 
+     onClosing: (close) => {
++        // On macOS the window closes to the menu bar, which has Quit
++        if (Qt.platform.os == "osx")
++            return;
+         if (WivrnServer.ownServer && WivrnServer.sessionRunning)
+         {
+             close.accepted = false;
 diff --git a/dashboard/window_helper.cpp b/dashboard/window_helper.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..55f2f684d914a8d13656882896fec7a226e20ebc
+index 0000000000000000000000000000000000000000..7a98adcfacca2a9b72f3c09a117060bf7ff3426b
 --- /dev/null
 +++ b/dashboard/window_helper.cpp
-@@ -0,0 +1,38 @@
+@@ -0,0 +1,39 @@
 +/*
 + * WiVRn VR streaming
 + * Copyright (C) 2026  wivrn-macos contributors
@@ -139,29 +159,30 @@ index 0000000000000000000000000000000000000000..55f2f684d914a8d13656882896fec7a2
 +#include "window_helper.h"
 +
 +#ifdef __APPLE__
-+void macos_activate_app();
++void macos_activate_app(QWindow * window);
 +#endif
 +
 +void window_helper::bringToFront(QWindow * window)
 +{
 +	if (not window)
 +		return;
++#ifdef __APPLE__
++	// Activate first, so the window ends up on the Space macOS switches to
++	macos_activate_app(window);
++#endif
 +	if (window->windowState() & Qt::WindowMinimized)
 +		window->showNormal();
 +	else
 +		window->show();
 +	window->raise();
 +	window->requestActivate();
-+#ifdef __APPLE__
-+	macos_activate_app();
-+#endif
 +}
 diff --git a/dashboard/window_helper.h b/dashboard/window_helper.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..2c2f5e0006e911010955fda3f6370b506aa81315
+index 0000000000000000000000000000000000000000..80f26bd0ad7c8f1fb3bde4e79ea00fc191fb822e
 --- /dev/null
 +++ b/dashboard/window_helper.h
-@@ -0,0 +1,42 @@
+@@ -0,0 +1,45 @@
 +/*
 + * WiVRn VR streaming
 + * Copyright (C) 2026  wivrn-macos contributors
@@ -195,21 +216,24 @@ index 0000000000000000000000000000000000000000..2c2f5e0006e911010955fda3f6370b50
 +public:
 +	using QObject::QObject;
 +
-+	// Shows, unminimises and raises the window and activates the app; on macOS the system then switches to the
-+	// window's Space, also from another app's full-screen Space
++	// Activates the app, then shows, unminimises and raises the window; on macOS from a full-screen Space the system
++	// switches to the desktop and the window is there
 +	Q_INVOKABLE static void bringToFront(QWindow * window);
 +
 +#ifdef __APPLE__
-+	// Dock icon click or opening the running app (kAEReopenApplication): bring the window to front
++	// Before the window exists: it must open on the desktop, not over a full-screen app
++	static void launch_on_desktop();
++	// Once the window is up: menu-bar only from now on; opening the running app again from Finder or Spotlight
++	// (kAEReopenApplication) brings the window to front
 +	static void show_on_reopen(QWindow * window);
 +#endif
 +};
 diff --git a/dashboard/window_helper_macos.mm b/dashboard/window_helper_macos.mm
 new file mode 100644
-index 0000000000000000000000000000000000000000..513ca033758ad9043b3657defb22c53134637774
+index 0000000000000000000000000000000000000000..d3e5361b51b5ff2e9dc81287a88a30cb26c52ea0
 --- /dev/null
 +++ b/dashboard/window_helper_macos.mm
-@@ -0,0 +1,52 @@
+@@ -0,0 +1,79 @@
 +/*
 + * WiVRn VR streaming
 + * Copyright (C) 2026  wivrn-macos contributors
@@ -235,8 +259,28 @@ index 0000000000000000000000000000000000000000..513ca033758ad9043b3657defb22c531
 +
 +#import <AppKit/AppKit.h>
 +
-+void macos_activate_app()
++// A menu-bar-only app's new window opens on the active Space, also over a full-screen app; a regular app's opens on
++// the desktop. Be a regular app while the window comes up, then menu-bar only again.
++static void menu_bar_only_soon()
 +{
++	dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), dispatch_get_main_queue(), ^{
++		[NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
++	});
++}
++
++static void regular_while_showing()
++{
++	[NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
++	menu_bar_only_soon();
++}
++
++void macos_activate_app(QWindow * window)
++{
++	if (not window->isVisible())
++		regular_while_showing();
++	// Shown again right away, a window on another Space comes up on the one macOS switches to
++	else if (not reinterpret_cast<NSView *>(window->winId()).window.onActiveSpace)
++		window->hide();
 +	[NSApp activateIgnoringOtherApps:YES];
 +}
 +
@@ -252,9 +296,16 @@ index 0000000000000000000000000000000000000000..513ca033758ad9043b3657defb22c531
 +}
 +@end
 +
-+// Qt only activates the app on reopen, so a window hidden from the menu-bar item stayed hidden
++void window_helper::launch_on_desktop()
++{
++	[NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
++}
++
++// Qt only activates the app on reopen, so a closed window stayed hidden
 +void window_helper::show_on_reopen(QWindow * window)
 +{
++	menu_bar_only_soon();
++
 +	static WivrnReopenHandler * handler = [WivrnReopenHandler new];
 +	handler.window = window;
 +	[[NSAppleEventManager sharedAppleEventManager] setEventHandler:handler
