@@ -20,6 +20,7 @@ if [[ ! -f "$BUILD/build.ninja" ]]; then
 		-DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
 		-DKDE_INSTALL_QMLDIR="$KDE/lib/qml" -DGIT_TAG=v26.9 \
 		-DWIVRN_BUILD_SERVER=OFF -DWIVRN_BUILD_CLIENT=OFF -DWIVRN_BUILD_DASHBOARD=ON -DWIVRN_BUILD_WIVRNCTL=OFF \
+		-DWIVRN_USE_X264="${WIVRN_USE_X264:-ON}" \
 		> "$LOGS/wivrn-dashboard-configure.log" 2>&1 \
 		|| { tail -40 "$LOGS/wivrn-dashboard-configure.log"; exit 1; }
 fi

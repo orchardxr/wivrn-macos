@@ -1,0 +1,211 @@
+From: wivrn-macos
+Subject: [PATCH] macos-dashboard-text
+
+---
+ dashboard/main.cpp                 |  5 +++++
+ dashboard/qml/SettingsPage.qml     | 16 +++++++++++++++-
+ dashboard/qml/TroubleshootPage.qml | 12 ++++++------
+ dashboard/qml/WizardPage.qml       |  8 ++++----
+ dashboard/settings.cpp             |  8 ++++++++
+ dashboard/settings.h               |  3 +++
+ 6 files changed, 41 insertions(+), 11 deletions(-)
+
+diff --git a/dashboard/main.cpp b/dashboard/main.cpp
+index 464343670454a5a098c61016c4c60cc1c736fb55..d48251a1cce4c28bc839f2dc08e522c9086075e7 100644
+--- a/dashboard/main.cpp
++++ b/dashboard/main.cpp
+@@ -223,8 +223,13 @@ int main(int argc, char * argv[])
+ 	aboutData.setDesktopFileName(QStringLiteral("io.github.wivrn.wivrn"));
+ 	aboutData.setOrganizationDomain("wivrn.github.io");
+ 
++#ifdef __APPLE__
++	aboutData.setHomepage("https://github.com/orchardxr/wivrn-macos");
++	aboutData.setBugAddress("https://github.com/orchardxr/wivrn-macos/issues");
++#else
+ 	aboutData.setHomepage("https://github.com/WiVRn/WiVRn");
+ 	aboutData.setBugAddress("https://github.com/WiVRn/WiVRn/issues");
++#endif
+ 	aboutData.setProgramLogo(QIcon(":/qml/wivrn.svg"));
+ 
+ 	aboutData.addComponent(
+diff --git a/dashboard/qml/SettingsPage.qml b/dashboard/qml/SettingsPage.qml
+index d6da4e371e6dc0405e4a33136e1fc9df8e0f46c8..c24294c860705c313d692f5a18298fddc563fad6 100644
+--- a/dashboard/qml/SettingsPage.qml
++++ b/dashboard/qml/SettingsPage.qml
+@@ -41,7 +41,21 @@ Kirigami.ScrollablePage {
+                 enabled: Settings.simpleConfig
+                 Controls.ComboBox {
+                     id: encoder_combo
+-                    model: [
++                    model: Qt.platform.os == "osx" ? [
++                        {
++                            label: i18nc("automatic encoder setup", "Auto"),
++                            encoder: Settings.EncoderAuto
++                        },
++                        {
++                            label: i18n("VideoToolbox (hardware encoding)"),
++                            encoder: Settings.VideoToolbox
++                        }
++                    ].concat(Settings.x264_supported ? [
++                        {
++                            label: i18n("x264 (software encoding)"),
++                            encoder: Settings.X264
++                        }
++                    ] : []) : [
+                         {
+                             label: i18nc("automatic encoder setup", "Auto"),
+                             encoder: Settings.EncoderAuto
+diff --git a/dashboard/qml/TroubleshootPage.qml b/dashboard/qml/TroubleshootPage.qml
+index 31702f8c13b0cb9402504cc389b8433dd7115bf9..85c174f8c300ad1752d9ec72974a2f5cb7e2d803 100644
+--- a/dashboard/qml/TroubleshootPage.qml
++++ b/dashboard/qml/TroubleshootPage.qml
+@@ -22,15 +22,15 @@ Kirigami.ScrollablePage {
+         }
+         TroubleshootCard {
+             title: i18n("I cannot see my computer in the WiVRn app")
+-            details: i18n("If you have a firewall, make sure that port 5353/UDP is open.")
++            details: Qt.platform.os == "osx" ? i18n("If the macOS firewall is on, allow WiVRn in System Settings › Network › Firewall.") : i18n("If you have a firewall, make sure that port 5353/UDP is open.")
+         }
+         TroubleshootCard {
+             title: i18n("Connecting remains stuck on \"Connection to ...\"")
+-            details: i18n("If you have a firewall, make sure that port 9757 is open both for TCP and UDP.")
++            details: Qt.platform.os == "osx" ? i18n("If the macOS firewall is on, allow WiVRn in System Settings › Network › Firewall.") : i18n("If you have a firewall, make sure that port 9757 is open both for TCP and UDP.")
+         }
+         TroubleshootCard {
+             title: i18n("Connection fails with \"no route to host\"")
+-            details: i18n("If you have a firewall, make sure that port 9757 is open both for TCP and UDP.")
++            details: Qt.platform.os == "osx" ? i18n("If the macOS firewall is on, allow WiVRn in System Settings › Network › Firewall.") : i18n("If you have a firewall, make sure that port 9757 is open both for TCP and UDP.")
+         }
+         TroubleshootCard {
+             title: i18n("I have an \"Incompatible WiVRn server\" error on my headset")
+@@ -55,11 +55,11 @@ Kirigami.ScrollablePage {
+         }
+         TroubleshootCard {
+             title: i18n("I have no sound on my headset")
+-            details: i18n("When the headset is connected, select \"WiVRn\" as the default audio output device for applications to use it.")
++            details: Qt.platform.os == "osx" ? i18n("On macOS there is no output device to choose: while the headset is connected, WiVRn captures the game audio automatically. The first time, allow WiVRn in System Settings › Privacy & Security › Screen & System Audio Recording.") : i18n("When the headset is connected, select \"WiVRn\" as the default audio output device for applications to use it.")
+         }
+         TroubleshootCard {
+             title: i18n("Some games fail to start or have input issues")
+-            details: i18n("For game specific issues, check on <a href=\"https://db.vronlinux.org/\">vronlinux DB</a> if there are known bugs or workarounds.")
++            details: Qt.platform.os == "osx" ? i18n("Windows games run through VarboR: check its <a href=\"https://github.com/orchardxr/varbor\">documentation</a> for known issues and workarounds.") : i18n("For game specific issues, check on <a href=\"https://db.vronlinux.org/\">vronlinux DB</a> if there are known bugs or workarounds.")
+         }
+     }
+ 
+@@ -78,7 +78,7 @@ Kirigami.ScrollablePage {
+         Kirigami.Action {
+             text: i18n("Report an issue")
+             icon.source: Qt.resolvedUrl("Github.svg")
+-            onTriggered: Qt.openUrlExternally("https://github.com/WiVRn/WiVRn/issues")
++            onTriggered: Qt.openUrlExternally(Qt.platform.os == "osx" ? "https://github.com/orchardxr/wivrn-macos/issues" : "https://github.com/WiVRn/WiVRn/issues")
+         },
+         Kirigami.Action {
+             text: i18n("Ask on Discord")
+diff --git a/dashboard/qml/WizardPage.qml b/dashboard/qml/WizardPage.qml
+index 14e150818d15bec11bb408bcbe8b4f3fdb4b1757..0f197f92af28e3d75417602395ffc8de022af223 100644
+--- a/dashboard/qml/WizardPage.qml
++++ b/dashboard/qml/WizardPage.qml
+@@ -216,7 +216,7 @@ Kirigami.ScrollablePage {
+             Controls.Label {
+                 Layout.fillWidth: true
+                 wrapMode: Text.WordWrap
+-                text: i18n("<p>No headset detected. Make sure that:\n<ul><li>The ADB udev rules are installed</li><li>The headset is in <a href=\"#\">developer mode</a></li></ul></p>")
++                text: Qt.platform.os == "osx" ? i18n("<p>No headset detected. Make sure that:\n<ul><li>The headset is connected to this Mac with a USB cable, and you allowed USB debugging in the headset</li><li>The headset is in <a href=\"#\">developer mode</a></li></ul></p>") : i18n("<p>No headset detected. Make sure that:\n<ul><li>The ADB udev rules are installed</li><li>The headset is in <a href=\"#\">developer mode</a></li></ul></p>")
+                 onLinkActivated: devmode_dialog.open()
+                 MouseArea {
+                     anchors.fill: parent
+@@ -298,7 +298,7 @@ Kirigami.ScrollablePage {
+             Controls.Label {
+                 Layout.fillWidth: true
+                 wrapMode: Text.WordWrap
+-                text: i18n("WiVRn entirely replaces SteamVR, you should not start SteamVR while WiVRn is running.")
++                text: Qt.platform.os == "osx" ? i18n("SteamVR is not needed: Windows VR games run through VarboR, and OpenVR games use OpenComposite, which WiVRn activates while it runs.") : i18n("WiVRn entirely replaces SteamVR, you should not start SteamVR while WiVRn is running.")
+             }
+ 
+             SteamLaunchOptions {
+@@ -355,7 +355,7 @@ Kirigami.ScrollablePage {
+             }
+             BetterLabel {
+                 Layout.fillWidth: true
+-                text: i18n("If the server is not visible or the connection fails, check that ports 5353 (UDP) and 9757 (TCP and UDP) are open in your firewall.")
++                text: Qt.platform.os == "osx" ? i18n("If the server is not visible or the connection fails and the macOS firewall is on, allow WiVRn in System Settings › Network › Firewall.") : i18n("If the server is not visible or the connection fails, check that ports 5353 (UDP) and 9757 (TCP and UDP) are open in your firewall.")
+                 Layout.topMargin: Kirigami.Units.largeSpacing
+             }
+             Item {
+@@ -403,7 +403,7 @@ Kirigami.ScrollablePage {
+             Controls.Label {
+                 Layout.fillWidth: true
+                 wrapMode: Text.WordWrap
+-                text: i18n("When the headset is connected, select \"WiVRn\" as the default audio output device for applications to use it.")
++                text: Qt.platform.os == "osx" ? i18n("On macOS there is no output device to choose: while the headset is connected, WiVRn captures the game audio automatically. The first time, allow WiVRn in System Settings › Privacy & Security › Screen & System Audio Recording.") : i18n("When the headset is connected, select \"WiVRn\" as the default audio output device for applications to use it.")
+             }
+             Item {
+                 Layout.fillHeight: true
+diff --git a/dashboard/settings.cpp b/dashboard/settings.cpp
+index 5842a80b2e5d90da0330cc1afe90c89aaca1decc..9e0e84064ce5188f395ace1be093b3d7e9c620d6 100644
+--- a/dashboard/settings.cpp
++++ b/dashboard/settings.cpp
+@@ -38,6 +38,7 @@ const std::vector<std::pair<Settings::encoder_name, std::string>> encoder_ids{
+         {Settings::encoder_name::Vaapi, "vaapi"},
+         {Settings::encoder_name::X264, "x264"},
+         {Settings::encoder_name::Vulkan, "vulkan"},
++        {Settings::encoder_name::VideoToolbox, "videotoolbox"},
+ };
+ 
+ const std::vector<std::tuple<Settings::video_codec, std::string>> codec_ids{
+@@ -233,6 +234,7 @@ void Settings::set_encoder(const encoder_name & value)
+ 		case Vaapi:
+ 		case X264:
+ 		case Vulkan:
++		case VideoToolbox:
+ 			m_jsonSettings["encoder"] = encoder_from_id(value);
+ 	}
+ 	encoderChanged();
+@@ -559,6 +561,7 @@ QList<Settings::video_codec> Settings::allowedCodecs() const
+ 			        video_codec::Av1,
+ 			};
+ 		case encoder_name::Vulkan:
++		case encoder_name::VideoToolbox:
+ 			return {
+ 			        video_codec::CodecAuto,
+ 			        video_codec::H264,
+@@ -625,6 +628,11 @@ bool Settings::steamvr_lh() const
+ 	return false;
+ #endif
+ }
++bool Settings::x264() const
++{
++	return WIVRN_USE_X264;
++}
++
+ bool Settings::hid_forwarding() const
+ {
+ 	// only called from the UI thread → no locking needed
+diff --git a/dashboard/settings.h b/dashboard/settings.h
+index 6b0e3ed5df499e96c67c8d3d74709c4236c2d0a5..2447f20bb579d1214531f096391a48434ab46815 100644
+--- a/dashboard/settings.h
++++ b/dashboard/settings.h
+@@ -48,6 +48,7 @@ public:
+ 		Vaapi,
+ 		X264,
+ 		Vulkan,
++		VideoToolbox,
+ 	};
+ 	Q_ENUM(encoder_name)
+ 
+@@ -85,6 +86,7 @@ public:
+ 	Q_PROPERTY(bool hid_forwarding_supported READ hid_forwarding CONSTANT)
+ 	Q_PROPERTY(bool debug_gui_supported READ debug_gui CONSTANT)
+ 	Q_PROPERTY(bool steamvr_lh_supported READ steamvr_lh CONSTANT)
++	Q_PROPERTY(bool x264_supported READ x264 CONSTANT)
+ 
+ 	SETTER_GETTER_NOTIFY(bool, simpleConfig)
+ 	SETTER_GETTER_NOTIFY(encoder_name, encoder)
+@@ -122,6 +124,7 @@ public:
+ 	bool debug_gui() const;
+ 	bool steamvr_lh() const;
+ 	bool hid_forwarding() const;
++	bool x264() const;
+ 
+ 	static encoder_name encoder_id_from_string(std::string_view s);
+ 	static video_codec codec_id_from_string(std::string_view s);

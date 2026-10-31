@@ -471,6 +471,20 @@ The server read `WIVRN_INSTALL_PREFIX/share/wivrn/config.json`, i.e. the build m
 under `~/Documents` made the app ask for Documents access. Skipped on macOS (the app is relocatable); `/etc` and
 `~/.config` remain.
 
+**0024-macos-dashboard-text** (2026-10-31)
+
+Dashboard texts and choices that only made sense on Linux:
+- Settings › Encoder: Auto, VideoToolbox, and x264 only when built with `WIVRN_USE_X264` (`Settings.x264_supported`;
+  `scripts/build-dashboard.sh` passes `WIVRN_USE_X264` on). No nvenc, vaapi or Vulkan. VideoToolbox (`"videotoolbox"`)
+  offers Auto, H.264 and H.265.
+- Wizard: "No headset detected" asks for a USB cable and USB debugging allowed in the headset instead of ADB udev
+  rules; "WiVRn replaces SteamVR" becomes: Windows VR games run through VarboR, OpenVR games use OpenComposite (0025).
+- Firewall hints (wizard, Troubleshoot): allow WiVRn in System Settings › Network › Firewall instead of ports.
+- Audio hint (wizard, Troubleshoot): no output device to choose, the CoreAudio tap captures the game (0008); the
+  first time, allow WiVRn under Screen & System Audio Recording.
+- Troubleshoot › Report an issue and About (bug address, homepage): orchardxr/wivrn-macos. The game-help card points
+  to VarboR instead of the vronlinux DB.
+
 ## Step 7 findings (2026-10-24)
 
 - **Startup stall: fixed** (root cause in docs/encoder.md). It was libmvt's prewarm PTS (`CLOCK_UPTIME_RAW`) against
