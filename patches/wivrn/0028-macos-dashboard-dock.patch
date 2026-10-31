@@ -1,0 +1,135 @@
+From: wivrn-macos
+Subject: [PATCH] macos-dashboard-dock
+
+---
+ dashboard/main.cpp               |  2 +-
+ dashboard/qml/Main.qml           | 61 ++++++++--------------------------------
+ dashboard/window_helper_macos.mm |  5 ++--
+ 3 files changed, 15 insertions(+), 53 deletions(-)
+
+diff --git a/dashboard/main.cpp b/dashboard/main.cpp
+index d48251a1cce4c28bc839f2dc08e522c9086075e7..ce0c67a31d90ae12507c25b9505af17b44bca2af 100644
+--- a/dashboard/main.cpp
++++ b/dashboard/main.cpp
+@@ -269,7 +269,7 @@ int main(int argc, char * argv[])
+ 		return -1;
+ 	}
+ #ifdef __APPLE__
+-	// Closing the window leaves WiVRn in the menu bar
++	// Closing the window leaves WiVRn in the Dock
+ 	app.setQuitOnLastWindowClosed(false);
+ 	if (auto window = qobject_cast<QWindow *>(engine.rootObjects().first()))
+ 		QTimer::singleShot(0, window, [window] { window_helper::show_on_reopen(window); });
+diff --git a/dashboard/qml/Main.qml b/dashboard/qml/Main.qml
+index aedd9ed17cf000b12ebb83e5eab5906483113220..9fad68b0a5a6a98e7a6308ea4df34247c60d7662 100644
+--- a/dashboard/qml/Main.qml
++++ b/dashboard/qml/Main.qml
+@@ -17,53 +17,13 @@ Kirigami.ApplicationWindow {
+ 
+     SystemTrayIcon {
+         id: systray
+-        visible: true
++        // On macOS WiVRn lives in the Dock: a click there shows the window, Quit is in its menu
++        visible: Qt.platform.os != "osx"
+         icon.source: Qt.resolvedUrl("wivrn.svg")
+-        // On macOS a click on the menu-bar item opens its menu
+-        onActivated: if (Qt.platform.os != "osx") root.visible = !root.visible
+-        menu: Qt.platform.os == "osx" ? systray_menu : null
++        onActivated: root.visible = !root.visible
+     }
+ 
+-    Menu {
+-        id: systray_menu
+-        MenuItem {
+-            enabled: false
+-            text: {
+-                switch (WivrnServer.serverStatus) {
+-                case WivrnServer.Started:
+-                    return WivrnServer.headsetConnected ? i18n("Headset connected") : i18n("Server running");
+-                case WivrnServer.Starting:
+-                case WivrnServer.Restarting:
+-                    return i18n("Server starting");
+-                case WivrnServer.Stopping:
+-                    return i18n("Server stopping");
+-                case WivrnServer.FailedToStart:
+-                    return i18n("Server failed to start");
+-                default:
+-                    return i18n("Server stopped");
+-                }
+-            }
+-        }
+-        MenuSeparator {}
+-        MenuItem {
+-            text: i18n("Show WiVRn")
+-            onTriggered: WindowHelper.bringToFront(root)
+-        }
+-        MenuSeparator {}
+-        MenuItem {
+-            text: i18n("Quit WiVRn")
+-            onTriggered: root.request_quit()
+-        }
+-    }
+-
+-    function request_quit() {
+-        if (WivrnServer.ownServer && WivrnServer.sessionRunning) {
+-            WindowHelper.bringToFront(root);
+-            confirm_close.open();
+-        } else {
+-            Qt.quit();
+-        }
+-    }
++    property bool quitting: false
+ 
+     Component{
+         id: error_template
+@@ -80,14 +40,14 @@ Kirigami.ApplicationWindow {
+     }
+ 
+     onClosing: (close) => {
+-        // On macOS the window closes to the menu bar, which has Quit
+-        if (Qt.platform.os == "osx")
++        // On macOS the close button only hides the window (window_helper), so a close here is Quit
++        if (root.quitting)
+             return;
+         if (WivrnServer.ownServer && WivrnServer.sessionRunning)
+         {
+             close.accepted = false;
+             confirm_close.open();
+-        } else {
++        } else if (Qt.platform.os != "osx") {
+             Qt.quit();
+         }
+     }
+@@ -95,11 +55,14 @@ Kirigami.ApplicationWindow {
+     Kirigami.PromptDialog {
+         id: confirm_close
+         title: i18n("Quit WiVRn")
+-        subtitle: i18n("The WiVRn server is active.\nClosing the window will terminate it.")
++        subtitle: Qt.platform.os == "osx" ? i18n("The WiVRn server is active.\nQuitting WiVRn will stop it.") : i18n("The WiVRn server is active.\nClosing the window will terminate it.")
+         iconName: "dialog-warning"
+         popupType: Controls.Popup.Native
+         standardButtons: Kirigami.Dialog.Ok | Kirigami.Dialog.Cancel
+-        onAccepted: Qt.quit()
++        onAccepted: {
++            root.quitting = true;
++            Qt.quit();
++        }
+     }
+ 
+     width: 900
+diff --git a/dashboard/window_helper_macos.mm b/dashboard/window_helper_macos.mm
+index 852ea3e6bce505bf0ec66fedbc8ec8904e5abc76..d2c9522de5b0e4f52dd00568f881e4bcec0760b3 100644
+--- a/dashboard/window_helper_macos.mm
++++ b/dashboard/window_helper_macos.mm
+@@ -32,9 +32,8 @@ void macos_activate_app(QWindow * window)
+ 	[NSApp activateIgnoringOtherApps:YES];
+ }
+ 
+-// The close button hides the window instead. A closed window is destroyed, and a menu-bar-only app's new window opens
+-// on the active Space, also over a full-screen app; a hidden one comes back on its desktop. Quit and logout close the
+-// window programmatically (not spontaneously), so they still go through.
++// The close button hides the window instead, so it comes back on its desktop. Quit and logout close the window
++// programmatically (not spontaneously), so they go through Main.qml's onClosing.
+ class hide_on_close : public QObject
+ {
+ public:

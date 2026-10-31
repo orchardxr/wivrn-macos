@@ -595,3 +595,11 @@ in ms, CPU = `ps` average of the 10-s samples):
   prefix (`share/wivrn/build-info`). A patch could resolve the manifest relative to the executable instead.
 - x264 on Apple would read the plane aspects of a non-planar image. It needs the same `cbcr` path as the VT
   encoder before it can be used.
+
+**0028-macos-dashboard-dock** (2026-10-31)
+
+The menu-bar item went (it's hidden on macOS) and WiVRn.app is a regular Dock app again: the status-item menu's Show
+was unreliable (shown on the desktop, a second click went back to the previous Space). A Dock click shows the window
+(the `kAEReopenApplication` handler from 0019), the close button still only hides it, and Quit (app menu, Dock, ⌘Q)
+closes the window programmatically, so `onClosing` asks for confirmation while a session runs and `quitting` lets
+the confirmed quit through.
