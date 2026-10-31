@@ -485,6 +485,26 @@ Dashboard texts and choices that only made sense on Linux:
 - Troubleshoot › Report an issue and About (bug address, homepage): orchardxr/wivrn-macos. The game-help card points
   to VarboR instead of the vronlinux DB.
 
+**0025-macos-openvr-compat** (2026-10-31)
+
+The "OpenVR compatibility library" setting, as on Linux: the server points OpenVR at the library while a session runs
+and restores the previous file afterwards. Upstream's semantics are unchanged: with the OpenXR active runtime, at
+headset connection (`active_runtime`, from `start_server`; at server start with `--early-active-runtime`), the
+existing `openvrpaths.vrpath` is renamed to `openvrpaths.vrpath.wivrn-backup` and a new one with only `runtime` (the
+library) and `version` is written; at session end (and server exit) it is removed and the backup moved back. Other
+runtimes' entries (SteamVR's) are in the backup meanwhile, not merged. `--no-manage-active-runtime` leaves both alone.
+On Apple:
+- the file is `~/Library/Application Support/OpenVR/.openvr/openvrpaths.vrpath` (OpenVR's `GetAppSettingsPath()` +
+  `.openvr`), not `~/.config/openvr`;
+- default (`openvr-compat-path` unset): the first of `~/Library/Application Support/OpenComposite/runtime` (where
+  opencomposite-macos's `install.sh` puts it) and `/Library/Application Support/OpenComposite/runtime` that has
+  `bin/osx64/vrclient.dylib`; none: nothing is written. Disabled (`null`) writes nothing; a custom path is used as is;
+- `common/utils/openvr_compat.h` has the paths for the server and the dashboard. The dashboard's combo lists the
+  libraries found ("OpenComposite (~/Library/…)"), shows "Default (OpenComposite not installed)" when there is none,
+  and the custom field asks for the runtime folder without `bin/osx64/vrclient.dylib`.
+
+As upstream, a server killed with SIGKILL leaves its file in place (the backup stays next to it).
+
 ## Step 7 findings (2026-10-24)
 
 - **Startup stall: fixed** (root cause in docs/encoder.md). It was libmvt's prewarm PTS (`CLOCK_UPTIME_RAW`) against
