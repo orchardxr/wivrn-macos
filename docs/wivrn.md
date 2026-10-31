@@ -510,6 +510,11 @@ As upstream, a server killed with SIGKILL leaves its file in place (the backup s
 After swapping the bundles, the updater's relaunch script `touch`es the new WiVRn.app and runs `lsregister -f` on it
 before `open`, so Finder and Launchpad show the new version's icon.
 
+**0027-macos-settings-combo-width** (2026-10-31)
+
+On macOS the Settings page's Encoder and OpenVR combos size to their widest entry (`implicitContentWidthPolicy:
+WidestText`); with Fusion they were cut to "VideoToolbox (h..." and "OpenComposit...".
+
 ## Step 7 findings (2026-10-24)
 
 - **Startup stall: fixed** (root cause in docs/encoder.md). It was libmvt's prewarm PTS (`CLOCK_UPTIME_RAW`) against

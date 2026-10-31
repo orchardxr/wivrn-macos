@@ -1,0 +1,36 @@
+From: wivrn-macos
+Subject: [PATCH] macos-settings-combo-width
+
+---
+ dashboard/qml/SettingsPage.qml | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/dashboard/qml/SettingsPage.qml b/dashboard/qml/SettingsPage.qml
+index 912ba7579e52793ef0ce1167aadb37bfb365073a..852bbb2d666ebdf3683943059c8d40c70847c19c 100644
+--- a/dashboard/qml/SettingsPage.qml
++++ b/dashboard/qml/SettingsPage.qml
+@@ -41,6 +41,7 @@ Kirigami.ScrollablePage {
+                 enabled: Settings.simpleConfig
+                 Controls.ComboBox {
+                     id: encoder_combo
++                    implicitContentWidthPolicy: Qt.platform.os == "osx" ? Controls.ComboBox.WidestText : Controls.ComboBox.ContentItemImplicitWidth
+                     model: Qt.platform.os == "osx" ? [
+                         {
+                             label: i18nc("automatic encoder setup", "Auto"),
+@@ -265,6 +266,7 @@ Kirigami.ScrollablePage {
+                 Layout.fillWidth: true
+                 Controls.ComboBox {
+                     id: openvr_combobox
++                    implicitContentWidthPolicy: Qt.platform.os == "osx" ? Controls.ComboBox.WidestText : Controls.ComboBox.ContentItemImplicitWidth
+                     Layout.columnSpan: 2
+                     textRole: "name"
+                     model: openvr_libs
+@@ -291,7 +293,7 @@ Kirigami.ScrollablePage {
+                 }
+                 Controls.TextField {
+                     id: openvr_text
+-                    placeholderText: Qt.platform.os == "osx" ? i18n("OpenComposite runtime folder, excluding bin/osx64/vrclient.dylib") : i18n("Library path, excluding bin/linux64/vrclient.so")
++                    placeholderText: Qt.platform.os == "osx" ? i18n("Folder with bin/osx64/vrclient.dylib") : i18n("Library path, excluding bin/linux64/vrclient.so")
+                     visible: !!openvr_combobox.model.get(openvr_combobox.currentIndex)?.is_custom
+                     Layout.fillWidth: true
+                 }

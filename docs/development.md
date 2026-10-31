@@ -79,7 +79,7 @@ run in the same login session as the server (Mach bootstrap service).
 
 ## WiVRn.app
 
-WiVRn's own Qt 6 / Kirigami dashboard (`third_party/wivrn/dashboard`, patches 0012, 0014, 0016 to 0021; what they
+WiVRn's own Qt 6 / Kirigami dashboard (`third_party/wivrn/dashboard`, patches 0012, 0014, 0016 to 0021, 0024 to 0027; what they
 change: [wivrn.md](wivrn.md)) with the server, a private `dbus-daemon` and the OpenXR runtime:
 
 ```
