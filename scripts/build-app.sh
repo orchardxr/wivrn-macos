@@ -80,6 +80,19 @@ env -i HOME="$HOME" TMPDIR="${TMPDIR:-/tmp}" PATH="$PATH" LANG=en_US.UTF-8 \
 	|| { tail -20 "$LOG"; exit 1; }
 before="$(du -sh "$app.new" | cut -f1)"
 
+machos() {
+	find "$c/MacOS" "$fw" "$c/PlugIns" "$c/Resources/qml" -type f \
+		\( -perm -u+x -o -name '*.dylib' -o -name '*.so' -o -path '*.framework/Versions/*' ! -path '*/Resources/*' \) \
+		-exec sh -c 'file -b "$1" | grep -q Mach-O && echo "$1"' _ {} \;
+}
+
+# macdeployqt does not follow every link of the libs it copies (an @rpath or absolute Homebrew dep of a dep). Before
+# the trim, so that trimmed libs still linked fail the check below instead of coming back.
+echo "==> bundle the links macdeployqt left"
+files=()
+while IFS= read -r f; do files+=("$f"); done < <(machos)
+bundle_dylibs "$fw" "${files[@]}"
+
 # macdeployqt deploys every plugin of the Qt modules it finds (Qt3D and Multimedia through QtQuick's scene plugins, Pdf
 # through the image formats, the virtual keyboard through the input contexts). Remove the unused ones; the check below
 # fails if anything left links them.
@@ -122,16 +135,19 @@ cp -R "$INSTALL/share/doc/wivrn-macos" "$c/Resources/licenses"
 echo "app=$VERSION" >> "$c/Resources/wivrn/build-info"
 sed -i '' '/^prefix=/d' "$c/Resources/wivrn/build-info"
 
-machos="$(find "$c/MacOS" "$fw" "$c/PlugIns" "$c/Resources/qml" -type f \( -perm -u+x -o -name '*.dylib' -o -name '*.so' \) \
-	-exec sh -c 'file -b "$1" | grep -q Mach-O && echo "$1"' _ {} \;)"
-deps="$(while IFS= read -r f; do otool -L "$f" | grep -v ':$' | awk '{print $1}'; done <<< "$machos" | sort -u)"
-left="$(grep -E "^(/opt/homebrew|/usr/local|$ROOT)/" <<< "$deps" || true)"
-[[ -z "$left" ]] || { echo "unbundled dylibs left:"; echo "$left"; exit 1; }
+links="$(machos | while IFS= read -r f; do otool -L "$f" | grep -v ':$' | awk -v f="${f#"$c/"}" '{print $1, f}'; done)"
+deps="$(cut -d' ' -f1 <<< "$links" | sort -u)"
+left="$(grep -E "^(/opt/homebrew|/usr/local|$ROOT)/" <<< "$links" || true)"
+[[ -z "$left" ]] || { echo "unbundled dylibs left (dep, linked from):"; echo "$left"; exit 1; }
 missing="$(grep '^@rpath/' <<< "$deps" | while read -r d; do
 	n="${d#@rpath/}"
 	[[ -e "$fw/$n" ]] || echo "$d"
 done)"
 [[ -z "$missing" ]] || { echo "trimmed too much, still linked:"; echo "$missing"; exit 1; }
+rpaths="$(machos | while IFS= read -r f; do
+	otool -l "$f" | awk -v f="${f#"$c/"}" '/LC_RPATH/ { r = 1 } r && $1 == "path" { if ($2 !~ /^@/) print $2, f; r = 0 }'
+done)"
+[[ -z "$rpaths" ]] || { echo "absolute rpaths left (rpath, in):"; echo "$rpaths"; exit 1; }
 
 echo "==> sign"
 codesign --force --deep -s - "$app.new" >> "$LOG" 2>&1
