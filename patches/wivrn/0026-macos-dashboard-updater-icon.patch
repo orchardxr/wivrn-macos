@@ -1,0 +1,30 @@
+From: wivrn-macos
+Subject: [PATCH] macos-dashboard-updater-icon
+
+---
+ dashboard/updater.cpp | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/dashboard/updater.cpp b/dashboard/updater.cpp
+index f88673a79f8f23c43b7c097211b332277f10b867..7f11d6f240cbbcf01b83987bec52e08abef378db 100644
+--- a/dashboard/updater.cpp
++++ b/dashboard/updater.cpp
+@@ -252,7 +252,8 @@ void updater::unpack(const QString & zip)
+ 				return set_state(State::Error, i18n("Signature check failed: %1", QString::fromUtf8(codesign->readAllStandardError()).trimmed()));
+ 
+ 			// Once we and our process group (bus, server, watchdog) are gone: swap the bundles (restoring the old one on
+-			// failure) and open the result, without our private bus address
++			// failure), re-register it so Finder and Launchpad pick up the new icon, and open it without our private bus
++			// address
+ 			const char * script = R"(while kill -0 "$1" 2>/dev/null; do sleep 0.2; done
+ i=0
+ while kill -0 -- "-$1" 2>/dev/null && [ $i -lt 100 ]; do sleep 0.2; i=$((i + 1)); done
+@@ -262,6 +263,8 @@ if mv "$2" "$old"; then
+ 	if mv "$3" "$2"; then rm -rf "$old"; else mv "$old" "$2"; fi
+ fi
+ xattr -dr com.apple.quarantine "$2" 2>/dev/null
++touch "$2"
++/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$2" 2>/dev/null
+ unset DBUS_SESSION_BUS_ADDRESS VK_DRIVER_FILES
+ open "$2")";
+ 			if (not QProcess::startDetached("/bin/sh", {"-c", script, "sh", QString::number(getpid()), app_bundle(), app}))

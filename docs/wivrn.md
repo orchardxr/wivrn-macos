@@ -505,6 +505,11 @@ On Apple:
 
 As upstream, a server killed with SIGKILL leaves its file in place (the backup stays next to it).
 
+**0026-macos-dashboard-updater-icon** (2026-10-31)
+
+After swapping the bundles, the updater's relaunch script `touch`es the new WiVRn.app and runs `lsregister -f` on it
+before `open`, so Finder and Launchpad show the new version's icon.
+
 ## Step 7 findings (2026-10-24)
 
 - **Startup stall: fixed** (root cause in docs/encoder.md). It was libmvt's prewarm PTS (`CLOCK_UPTIME_RAW`) against
