@@ -126,4 +126,6 @@ uploads `wivrn-macos.zip` and `WiVRn.zip`.
 To release: bump `VERSION`, optionally add notes as `docs/releases/v<version>.md` (else GitHub generates them),
 commit, push a tag `v<version>`. [.github/workflows/release.yml](../.github/workflows/release.yml) runs the same build,
 checks the tag against `VERSION` and publishes `WiVRn-<version>.zip` (what WiVRn.app's self-update downloads) and
-`wivrn-macos-<version>.zip` (the install tree).
+`wivrn-macos-<version>-headless.zip` (the install tree: server and runtime, no dashboard). The release notes should
+say which to download: `WiVRn-<version>.zip` for the app, the headless zip only to run the server without the
+dashboard, e.g. from scripts.

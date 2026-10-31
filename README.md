@@ -32,8 +32,8 @@ Download `WiVRn-<version>.zip` from [Releases](https://github.com/orchardxr/wivr
 or run `xattr -dr com.apple.quarantine /Applications/WiVRn.app`. WiVRn.app updates itself from the releases ("Check for
 updates" in its menu; it also checks at startup).
 
-Without the dashboard: `wivrn-macos-<version>.zip` from the same release has the server and the runtime only, as a
-folder you can put anywhere (`bin/wivrn-server`).
+Without the dashboard: `wivrn-macos-<version>-headless.zip` from the same release has the server and the runtime only,
+as a folder you can put anywhere (`bin/wivrn-server`).
 
 ## Usage
 
